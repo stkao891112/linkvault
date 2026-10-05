@@ -30,20 +30,20 @@ export default function BookmarkDetailModal({
   customBaseUrl = '',
   customModel = '',
 }) {
-  if (!isOpen || !bookmark) return null;
-
-  const [userNote, setUserNote] = useState(bookmark.userNote || '');
-  const [selectedCatId, setSelectedCatId] = useState(bookmark.categoryId);
-  const [tags, setTags] = useState(bookmark.tags || []);
+  const [userNote, setUserNote] = useState(bookmark?.userNote || '');
+  const [selectedCatId, setSelectedCatId] = useState(bookmark?.categoryId || 'cat-tools');
+  const [tags, setTags] = useState(bookmark?.tags || []);
   const [newTagInput, setNewTagInput] = useState('');
   const [copied, setCopied] = useState(false);
   const [isReanalyzing, setIsReanalyzing] = useState(false);
   const [isSavedRecently, setIsSavedRecently] = useState(false);
 
   useEffect(() => {
-    setUserNote(bookmark.userNote || '');
-    setSelectedCatId(bookmark.categoryId);
-    setTags(bookmark.tags || []);
+    if (bookmark) {
+      setUserNote(bookmark.userNote || '');
+      setSelectedCatId(bookmark.categoryId || 'cat-tools');
+      setTags(bookmark.tags || []);
+    }
   }, [bookmark]);
 
   const currentCategory = categories.find((c) => c.id === selectedCatId);
@@ -121,6 +121,10 @@ export default function BookmarkDetailModal({
     const nextStatus = bookmark.status === 'read' ? 'unread' : 'read';
     onUpdateBookmark({ ...bookmark, status: nextStatus });
   };
+
+  if (!isOpen || !bookmark) return null;
+
+  if (!isOpen || !bookmark) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">

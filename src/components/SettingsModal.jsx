@@ -1,16 +1,32 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Download,
   Upload,
   RotateCcw,
   Key,
-  ShieldCheck,
   Check,
   AlertCircle,
   FileJson,
-  Cpu
+  Cpu,
+  Database,
+  Cloud,
+  RefreshCw,
+  Copy,
+  ExternalLink,
+  Wifi,
+  WifiOff,
+  CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
+import {
+  SUPABASE_SETUP_SQL,
+  testSupabaseConnection,
+} from '../services/supabaseService';
+import {
+  fetchAvailableModels,
+  DEFAULT_PROVIDER_MODELS,
+} from '../services/aiService';
 
 export default function SettingsModal({
   isOpen,
@@ -27,15 +43,102 @@ export default function SettingsModal({
   setCustomBaseUrl = () => {},
   customModel = '',
   setCustomModel = () => {},
+  supabaseConfig = { url: '', anonKey: '', source: 'none' },
+  supabaseSyncStatus = 'OFFLINE',
+  onSaveSupabaseConfig = () => {},
+  onManualSyncToCloud = () => {},
 }) {
-  if (!isOpen) return null;
+  // Active Tab: sync | ai | backup
+  const [activeTab, setActiveTab] = useState('sync');
 
+  // Supabase State
+  const [tempSupabaseUrl, setTempSupabaseUrl] = useState(supabaseConfig.url || '');
+  const [tempSupabaseAnonKey, setTempSupabaseAnonKey] = useState(supabaseConfig.anonKey || '');
+  const [isTestingSupabase, setIsTestingSupabase] = useState(false);
+  const [supabaseTestResult, setSupabaseTestResult] = useState(null);
+  const [isSyncingToCloud, setIsSyncingToCloud] = useState(false);
+  const [syncToCloudResult, setSyncToCloudResult] = useState(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [supabaseSaveSuccess, setSupabaseSaveSuccess] = useState(false);
+
+  // AI Settings State
   const [tempApiKey, setTempApiKey] = useState(customApiKey || '');
   const [tempProvider, setTempProvider] = useState(apiProvider || 'gemini');
   const [tempBaseUrl, setTempBaseUrl] = useState(customBaseUrl || '');
   const [tempModel, setTempModel] = useState(customModel || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importError, setImportError] = useState('');
+
+  // Dynamic Model Fetching State (Strictly No Manual Typing)
+  const [availableModels, setAvailableModels] = useState(() => {
+    return DEFAULT_PROVIDER_MODELS[apiProvider] || DEFAULT_PROVIDER_MODELS.gemini;
+  });
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [modelFetchMessage, setModelFetchMessage] = useState(null);
+
+  // Sync temp state with props when modal opens or props change
+  useEffect(() => {
+    setTempSupabaseUrl(supabaseConfig.url || '');
+    setTempSupabaseAnonKey(supabaseConfig.anonKey || '');
+  }, [supabaseConfig]);
+
+  useEffect(() => {
+    setTempApiKey(customApiKey || '');
+    setTempProvider(apiProvider || 'gemini');
+    setTempBaseUrl(customBaseUrl || '');
+    setTempModel(customModel || '');
+  }, [customApiKey, apiProvider, customBaseUrl, customModel]);
+
+  // Load models dynamically or from presets
+  const handleFetchModels = async (provider = tempProvider, key = tempApiKey, base = tempBaseUrl) => {
+    setIsFetchingModels(true);
+    setModelFetchMessage(null);
+    try {
+      const list = await fetchAvailableModels({
+        provider,
+        apiKey: key,
+        baseUrl: base,
+      });
+
+      if (list && list.length > 0) {
+        setAvailableModels(list);
+        const exists = list.some((m) => m.id === tempModel);
+        if (!exists) {
+          setTempModel(list[0].id);
+        }
+        setModelFetchMessage({
+          type: 'success',
+          text: `成功獲取 ${list.length} 個可用模型！`,
+        });
+      }
+    } catch (err) {
+      console.warn('Fetch models error:', err);
+      const fallback = DEFAULT_PROVIDER_MODELS[provider] || [];
+      setAvailableModels(fallback);
+      setModelFetchMessage({
+        type: 'error',
+        text: err.message || '獲取模型失敗，已載入預設常用模型選單',
+      });
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
+  // When switching provider in modal, refresh the model list
+  const handleProviderChange = (newProvider) => {
+    setTempProvider(newProvider);
+    const defaults = DEFAULT_PROVIDER_MODELS[newProvider] || [];
+    setAvailableModels(defaults);
+    if (defaults.length > 0) {
+      setTempModel(defaults[0].id);
+    }
+
+    if (newProvider === 'gemini' && tempApiKey) {
+      handleFetchModels(newProvider, tempApiKey, tempBaseUrl);
+    } else if (newProvider === 'custom') {
+      handleFetchModels(newProvider, tempApiKey, tempBaseUrl || 'http://localhost:11434/v1');
+    }
+  };
 
   const handleSaveApiSettings = (e) => {
     e.preventDefault();
@@ -47,6 +150,73 @@ export default function SettingsModal({
     setTimeout(() => setSaveSuccess(false), 2000);
   };
 
+  // Save Supabase Configuration
+  const handleSaveSupabase = async (e) => {
+    e.preventDefault();
+    const url = tempSupabaseUrl.trim();
+    const key = tempSupabaseAnonKey.trim();
+    onSaveSupabaseConfig(url, key);
+    setSupabaseSaveSuccess(true);
+    setTimeout(() => setSupabaseSaveSuccess(false), 2500);
+
+    if (url && key) {
+      handleTestSupabase(url, key);
+    }
+  };
+
+  // Test Supabase Connection
+  const handleTestSupabase = async (url = tempSupabaseUrl, key = tempSupabaseAnonKey) => {
+    setIsTestingSupabase(true);
+    setSupabaseTestResult(null);
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const testClient = createClient(url.trim(), key.trim(), {
+        auth: { persistSession: false },
+      });
+      const result = await testSupabaseConnection(testClient);
+      setSupabaseTestResult(result);
+    } catch (err) {
+      setSupabaseTestResult({
+        success: false,
+        message: `連線失敗：${err.message}`,
+      });
+    } finally {
+      setIsTestingSupabase(false);
+    }
+  };
+
+  // Batch Push Local Data to Supabase
+  const handlePushAllToCloud = async () => {
+    if (!tempSupabaseUrl || !tempSupabaseAnonKey) {
+      alert('請先填寫並儲存 Supabase 網址與 Anon Key！');
+      return;
+    }
+    setIsSyncingToCloud(true);
+    setSyncToCloudResult(null);
+    try {
+      const res = await onManualSyncToCloud();
+      setSyncToCloudResult({
+        success: true,
+        message: `已成功同步 ${res?.bmSuccessCount ?? bookmarks.length} 筆書籤與 ${res?.catSuccessCount ?? categories.length} 個分類至 Supabase 雲端！`,
+      });
+    } catch (err) {
+      setSyncToCloudResult({
+        success: false,
+        message: `同步失敗：${err.message}`,
+      });
+    } finally {
+      setIsSyncingToCloud(false);
+    }
+  };
+
+  // Copy SQL to Clipboard
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SUPABASE_SETUP_SQL);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
+
+  // JSON Export
   const handleExportJSON = () => {
     const data = {
       version: '1.0',
@@ -64,6 +234,7 @@ export default function SettingsModal({
     URL.revokeObjectURL(url);
   };
 
+  // JSON Import
   const handleFileUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -87,19 +258,23 @@ export default function SettingsModal({
     reader.readAsText(file);
   };
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 max-w-xl w-full max-h-[94vh] sm:max-h-[88vh] flex flex-col overflow-hidden text-slate-100">
+      <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 max-w-2xl w-full max-h-[94vh] sm:max-h-[88vh] flex flex-col overflow-hidden text-slate-100">
         
         {/* Header */}
         <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center text-slate-300 shrink-0">
-              <Cpu className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-indigo-950/80 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+              <Database className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-100">情報庫設定與備份管理</h2>
-              <p className="text-[11px] sm:text-xs text-slate-400">配置 AI 推論引擎、備份與還原本地收藏資料</p>
+              <h2 className="text-base font-bold text-slate-100">情報庫設定與同步中心</h2>
+              <p className="text-[11px] sm:text-xs text-slate-400">
+                Supabase 跨裝置雙向即時同步、AI 模型調配與資料備份
+              </p>
             </div>
           </div>
           <button
@@ -110,219 +285,494 @@ export default function SettingsModal({
           </button>
         </div>
 
-        {/* Body */}
+        {/* Tab Navigation */}
+        <div className="flex border-b border-slate-800 bg-slate-950/50 px-4 sm:px-6 pt-2 gap-2">
+          <button
+            onClick={() => setActiveTab('sync')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
+              activeTab === 'sync'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5" />
+            <span>雲端即時同步 (Supabase)</span>
+            {supabaseSyncStatus === 'SUBSCRIBED' && (
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('ai')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
+              activeTab === 'ai'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5" />
+            <span>AI 分析引擎與模型選擇</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('backup')}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 flex items-center gap-1.5 transition-colors ${
+              activeTab === 'backup'
+                ? 'border-indigo-500 text-indigo-400'
+                : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileJson className="w-3.5 h-3.5" />
+            <span>JSON 備份與還原</span>
+          </button>
+        </div>
+
+        {/* Body Content */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 text-xs">
           
-          {/* AI Engine Configuration */}
-          <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Key className="w-3.5 h-3.5 text-indigo-400" />
-                <span>AI 分析引擎配置</span>
-              </div>
-              <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                預設免 API Key 即開即用
-              </span>
-            </div>
-
-            <p className="text-slate-400 leading-relaxed">
-              系統支援 Vercel 雲端伺服器代跑與在地智慧語意分析引擎。預設由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰。若您希望調用個人私有金鑰或其他模型，亦可在此填寫您的 API Key。
-            </p>
-
-            <form onSubmit={handleSaveApiSettings} className="space-y-3 pt-1">
-              <div>
-                <label className="block font-medium text-slate-400 mb-1">
-                  選擇 AI 供應商
-                </label>
-                <select
-                  value={tempProvider}
-                  onChange={(e) => setTempProvider(e.target.value)}
-                  className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none text-slate-200 focus:ring-2 focus:ring-indigo-500/20"
-                >
-                  <option value="gemini">Google Gemini (Vercel 伺服器代跑 - 由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰)</option>
-                  <option value="mock">內建本地智慧分析引擎 (無需 API Key，純本機零延遲)</option>
-                  <option value="custom">自訂 Base URL (本地 Ollama / LM Studio / 自建代理)</option>
-                  <option value="openai">OpenAI (GPT-4o-mini)</option>
-                  <option value="groq">Groq (Llama 3.3 70B 極速推論)</option>
-                  <option value="openrouter">OpenRouter (Claude 3.5 Haiku / Llama 3)</option>
-                </select>
-              </div>
-
-              {/* Custom Base URL & Model for local/proxy setup */}
-              {tempProvider === 'custom' && (
-                <div className="space-y-2 p-3 rounded-lg bg-slate-900 border border-slate-800">
+          {/* TAB 1: Supabase Realtime Cloud Sync */}
+          {activeTab === 'sync' && (
+            <div className="space-y-4">
+              
+              {/* Sync Status Banner */}
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/80 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                      supabaseSyncStatus === 'SUBSCRIBED'
+                        ? 'bg-emerald-950/80 border border-emerald-500/40 text-emerald-400'
+                        : supabaseSyncStatus === 'CONNECTED'
+                        ? 'bg-blue-950/80 border border-blue-500/40 text-blue-400'
+                        : 'bg-slate-800/80 border border-slate-700 text-slate-400'
+                    }`}
+                  >
+                    {supabaseSyncStatus === 'SUBSCRIBED' ? (
+                      <Wifi className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <WifiOff className="w-4 h-4 text-slate-400" />
+                    )}
+                  </div>
                   <div>
-                    <label className="block font-medium text-indigo-400 mb-1">
-                      API 基礎網址 (Base URL / 本地端點)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="http://localhost:11434/v1 或 http://localhost:1234/v1 或 https://..."
-                      value={tempBaseUrl}
-                      onChange={(e) => setTempBaseUrl(e.target.value)}
-                      className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      本地 Ollama 請填：<code className="text-indigo-300">http://localhost:11434/v1</code>；LM Studio 請填：<code className="text-indigo-300">http://localhost:1234/v1</code>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-200">
+                        {supabaseSyncStatus === 'SUBSCRIBED'
+                          ? '🟢 雲端雙向即時同步中 (Realtime Active)'
+                          : supabaseSyncStatus === 'CONNECTED'
+                          ? '🟡 雲端連線就緒 (Connected)'
+                          : '⚪ 本地離線模式 (Local-First Offline)'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {supabaseSyncStatus === 'SUBSCRIBED'
+                        ? '電腦與手機端只要有任何新增、收藏或刪除，另一端無需刷新即刻秒級同步！'
+                        : '未連線時所有變更安全保存在本機，連線後自動上傳未同步資料。'}
                     </p>
                   </div>
-
-                  <div>
-                    <label className="block font-medium text-slate-400 mb-1">
-                      模型名稱 (Model Name)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="例：llama3, deepseek-r1, qwen2.5, mistral"
-                      value={tempModel}
-                      onChange={(e) => setTempModel(e.target.value)}
-                      className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
-                    />
-                  </div>
                 </div>
-              )}
 
-              {/* Model selection for Gemini */}
-              {tempProvider === 'gemini' && (
+                {supabaseConfig.source === 'serverless' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-indigo-950/80 border border-indigo-500/30 text-indigo-300 shrink-0 hidden sm:inline-block">
+                    由 Vercel 雲端環境變數自動載入
+                  </span>
+                )}
+              </div>
+
+              {/* Supabase Config Form */}
+              <form onSubmit={handleSaveSupabase} className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Cloud className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Supabase 雲端資料庫設定</span>
+                  </div>
+                  <span className="text-[11px] text-slate-400">
+                    採用繁體中文資料表：<code className="text-indigo-300 font-mono">書籤情報</code>、<code className="text-indigo-300 font-mono">知識分類</code>
+                  </span>
+                </div>
+
                 <div>
                   <label className="block font-medium text-slate-400 mb-1">
-                    Gemini 模型版本 (選填)
+                    Supabase 專案網址 (Project URL)
                   </label>
                   <input
                     type="text"
-                    placeholder="gemini-1.5-flash (預設) 或 gemini-2.0-flash"
-                    value={tempModel}
-                    onChange={(e) => setTempModel(e.target.value)}
+                    placeholder="https://your-project-id.supabase.co"
+                    value={tempSupabaseUrl}
+                    onChange={(e) => setTempSupabaseUrl(e.target.value)}
                     className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
                   />
                 </div>
-              )}
 
-              {/* API Key Input (Optional for custom local & Gemini Vercel cloud, Required for other cloud providers) */}
-              {tempProvider !== 'mock' && (
                 <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="font-medium text-slate-400">
-                      API 金鑰 (API Key)
-                    </label>
-                    {tempProvider === 'gemini' && (
-                      <span className="text-[11px] text-emerald-400">由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰</span>
-                    )}
-                    {tempProvider === 'custom' && (
-                      <span className="text-[11px] text-slate-500">本地 Ollama / LM Studio 可留空</span>
-                    )}
-                  </div>
+                  <label className="block font-medium text-slate-400 mb-1">
+                    Supabase 匿名金鑰 (Anon Public Key)
+                  </label>
                   <input
                     type="password"
-                    placeholder={
-                      tempProvider === 'gemini'
-                        ? '選填：由 Vercel 伺服器代跑（或在此輸入個人自訂 AIzaSy...）'
-                        : tempProvider === 'custom'
-                        ? '選填，本地模型留空即可'
-                        : 'sk-...'
-                    }
-                    value={tempApiKey}
-                    onChange={(e) => setTempApiKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    value={tempSupabaseAnonKey}
+                    onChange={(e) => setTempSupabaseAnonKey(e.target.value)}
                     className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
-                    {tempProvider === 'gemini'
-                      ? '預設由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰；若填寫個人金鑰則優先使用個人配額。'
-                      : '金鑰僅保存在本機瀏覽器 LocalStorage 中，絕不傳送到外部伺服器。'}
+                    提示：在 Vercel 專案設定 <code className="text-indigo-300 font-mono">SUPABASE_URL</code> 與 <code className="text-indigo-300 font-mono">SUPABASE_ANON_KEY</code>，手機與電腦即全自動免輸入！
                   </p>
+                </div>
+
+                {/* Status Feedback */}
+                {supabaseTestResult && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
+                      supabaseTestResult.success
+                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                        : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                    }`}
+                  >
+                    {supabaseTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                    )}
+                    <div>{supabaseTestResult.message}</div>
+                  </div>
+                )}
+
+                {syncToCloudResult && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
+                      syncToCloudResult.success
+                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                        : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    <span>{syncToCloudResult.message}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={isTestingSupabase || !tempSupabaseUrl || !tempSupabaseAnonKey}
+                      onClick={() => handleTestSupabase()}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isTestingSupabase ? 'animate-spin' : ''}`} />
+                      <span>{isTestingSupabase ? '測試中...' : '測試連線'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSyncingToCloud || !tempSupabaseUrl || !tempSupabaseAnonKey}
+                      onClick={handlePushAllToCloud}
+                      className="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-300 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Upload className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-spin' : ''}`} />
+                      <span>{isSyncingToCloud ? '同步上傳中...' : '一鍵推播本機全部資料到 Supabase'}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {supabaseSaveSuccess && (
+                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> 已儲存
+                      </span>
+                    )}
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg font-semibold transition-colors shadow-lg shadow-indigo-500/25 cursor-pointer"
+                    >
+                      儲存連線設定
+                    </button>
+                  </div>
+                </div>
+              </form>
+
+              {/* Supabase Schema SQL Setup Section */}
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>繁體中文建表與 Realtime 廣播 SQL</span>
+                  </div>
+                  <button
+                    onClick={handleCopySql}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+                  >
+                    {copiedSql ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-200" />
+                        <span>已複製到剪貼簿！</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>一鍵複製 Supabase 建表 SQL</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <p className="text-slate-400 leading-relaxed">
+                  若您是首次配置 Supabase 專案，請前往{' '}
+                  <a
+                    href="https://supabase.com/dashboard"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-indigo-400 hover:underline inline-flex items-center gap-0.5"
+                  >
+                    Supabase 後台 <ExternalLink className="w-3 h-3 inline" />
+                  </a>
+                  ，點擊左側選單的 <strong>SQL Editor</strong>，點擊上方按鈕複製 SQL 腳本並貼上執行，即可自動建立繁體中文「書籤情報」與「知識分類」資料表，並啟用跨裝置秒級推播！
+                </p>
+
+                <div className="relative">
+                  <pre className="p-3 bg-slate-950 border border-slate-800 rounded-lg font-mono text-[11px] text-slate-300 max-h-36 overflow-y-auto leading-relaxed">
+                    {SUPABASE_SETUP_SQL}
+                  </pre>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* TAB 2: AI Engine & Dynamic Models */}
+          {activeTab === 'ai' && (
+            <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>AI 分析引擎與模型調配</span>
+                </div>
+                <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                  模型動態獲取 • 免手動手打
+                </span>
+              </div>
+
+              <p className="text-slate-400 leading-relaxed">
+                預設由 Vercel 伺服器代跑 GEMINI_API_KEY。若您希望調用個人私有金鑰或其他模型，系統會自動呼叫官方端點動態抓取可用模型，完全透過下拉選單選擇，無須記憶或手動輸入模型代號。
+              </p>
+
+              <form onSubmit={handleSaveApiSettings} className="space-y-3 pt-1">
+                <div>
+                  <label className="block font-medium text-slate-400 mb-1">
+                    選擇 AI 供應商
+                  </label>
+                  <select
+                    value={tempProvider}
+                    onChange={(e) => handleProviderChange(e.target.value)}
+                    className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none text-slate-200 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                  >
+                    <option value="gemini">Google Gemini (Vercel 伺服器代跑 / 個人金鑰)</option>
+                    <option value="custom">自訂端點 (本地 Ollama / LM Studio / 自建代理)</option>
+                    <option value="openai">OpenAI (GPT-4o / o1 / o3 系列)</option>
+                    <option value="groq">Groq (Llama 3.3 70B 極速推論)</option>
+                    <option value="openrouter">OpenRouter (海量大模型匯流代理)</option>
+                    <option value="mock">內建本地智慧分析引擎 (無需 API Key，純本機零延遲)</option>
+                  </select>
+                </div>
+
+                {/* Custom Base URL for Local Ollama / LM Studio */}
+                {tempProvider === 'custom' && (
+                  <div className="space-y-2 p-3 rounded-lg bg-slate-900 border border-slate-800">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-medium text-indigo-400">
+                          API 基礎網址 (Base URL)
+                        </label>
+                        <span className="text-[11px] text-slate-500">
+                          例：http://localhost:11434/v1
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="http://localhost:11434/v1 或 http://localhost:1234/v1"
+                        value={tempBaseUrl}
+                        onChange={(e) => setTempBaseUrl(e.target.value)}
+                        className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* API Key Input */}
+                {tempProvider !== 'mock' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-medium text-slate-400">
+                        API 金鑰 (API Key)
+                      </label>
+                      {tempProvider === 'gemini' && (
+                        <span className="text-[11px] text-emerald-400">選填：未填寫時由 Vercel GEMINI_API_KEY 代跑</span>
+                      )}
+                      {tempProvider === 'custom' && (
+                        <span className="text-[11px] text-slate-500">本地 Ollama / LM Studio 可留空</span>
+                      )}
+                    </div>
+                    <input
+                      type="password"
+                      placeholder={
+                        tempProvider === 'gemini'
+                          ? '選填：AIzaSy...（填寫個人金鑰可動態抓取您帳號下的所有模型）'
+                          : tempProvider === 'custom'
+                          ? '選填，本地模型留空即可'
+                          : 'sk-...'
+                      }
+                      value={tempApiKey}
+                      onChange={(e) => setTempApiKey(e.target.value)}
+                      className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                )}
+
+                {/* DYNAMIC MODEL SELECT DROPDOWN (Strictly No Manual Typing) */}
+                {tempProvider !== 'mock' && (
+                  <div className="space-y-1.5 p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                    <div className="flex items-center justify-between">
+                      <label className="font-semibold text-slate-200 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>動態模型選擇 (自動偵測可用清單)</span>
+                      </label>
+                      
+                      <button
+                        type="button"
+                        disabled={isFetchingModels}
+                        onClick={() => handleFetchModels(tempProvider, tempApiKey, tempBaseUrl)}
+                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 rounded-lg font-medium transition-colors cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isFetchingModels ? 'animate-spin' : ''}`} />
+                        <span>{isFetchingModels ? '正在偵測...' : '🔄 獲取/更新模型清單'}</span>
+                      </button>
+                    </div>
+
+                    <select
+                      value={tempModel}
+                      onChange={(e) => setTempModel(e.target.value)}
+                      className="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.id}
+                        </option>
+                      ))}
+                    </select>
+
+                    {modelFetchMessage && (
+                      <div
+                        className={`text-[11px] p-2 rounded-lg flex items-center gap-1.5 ${
+                          modelFetchMessage.type === 'success'
+                            ? 'text-emerald-300 bg-emerald-950/40 border border-emerald-800/40'
+                            : 'text-amber-300 bg-amber-950/40 border border-amber-800/40'
+                        }`}
+                      >
+                        {modelFetchMessage.type === 'success' ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+                        )}
+                        <span>{modelFetchMessage.text}</span>
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-slate-400">
+                      當前已選定：<code className="text-indigo-300 font-mono font-semibold">{tempModel || '預設模型'}</code>。系統已全面禁止手動手打模型名稱，確保呼叫端點 100% 精準有效。
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-1">
+                  {saveSuccess ? (
+                    <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> 已成功儲存 AI 設定
+                    </span>
+                  ) : <span />}
+
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg font-semibold transition-colors shadow-lg shadow-indigo-500/25 cursor-pointer"
+                  >
+                    儲存 AI 設定
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* TAB 3: Backup & Export / Import */}
+          {activeTab === 'backup' && (
+            <div className="space-y-3">
+              <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                <FileJson className="w-3.5 h-3.5 text-indigo-400" />
+                <span>本機 JSON 備份與還原</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Export JSON */}
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/60 flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-slate-200">匯出完整 JSON 備份</div>
+                    <p className="text-slate-400 mt-0.5">
+                      將目前的 {bookmarks.length} 筆收藏與所有分類完整打包下載。
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleExportJSON}
+                    className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>下載備份檔案 (.json)</span>
+                  </button>
+                </div>
+
+                {/* Import JSON */}
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/60 flex flex-col justify-between gap-3">
+                  <div>
+                    <div className="font-bold text-slate-200">匯入 JSON 備份</div>
+                    <p className="text-slate-400 mt-0.5">
+                      還原過往備份的情報庫檔案或與其他設備同步。
+                    </p>
+                  </div>
+                  <label className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>選擇 JSON 檔案匯入</span>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {importError && (
+                <div className="text-rose-300 bg-rose-950/40 border border-rose-800/60 p-2.5 rounded-lg flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{importError}</span>
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-1">
-                {saveSuccess ? (
-                  <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                    <Check className="w-3.5 h-3.5" /> 已成功儲存設定
-                  </span>
-                ) : <span />}
-
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg font-semibold transition-colors shadow-lg shadow-indigo-500/25"
-                >
-                  儲存 AI 設定
-                </button>
-              </div>
-            </form>
-          </div>
-
-          {/* Backup & Export / Import */}
-          <div className="space-y-3">
-            <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <FileJson className="w-3.5 h-3.5 text-indigo-400" />
-              <span>資料備份與還原</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Export JSON */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/60 flex flex-col justify-between gap-3">
+              {/* Reset to Seeds */}
+              <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
                 <div>
-                  <div className="font-bold text-slate-200">匯出完整 JSON 備份</div>
-                  <p className="text-slate-400 mt-0.5">
-                    將目前的 {bookmarks.length} 筆收藏與所有分類完整打包下載。
-                  </p>
+                  <div className="font-bold text-slate-200">重設為初始精選示範資料</div>
+                  <p className="text-slate-400">將情報庫還原至初始推薦的 GitHub 與素材庫資料。</p>
                 </div>
                 <button
-                  onClick={handleExportJSON}
-                  className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors"
+                  onClick={() => {
+                    if (confirm('確定要將所有收藏與分類重設為初始示範資料嗎？現有新增的項目將會被重設。')) {
+                      onResetData();
+                      onClose();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-rose-400 hover:bg-rose-950/40 border border-rose-800/60 rounded-lg font-semibold transition-colors shrink-0 cursor-pointer"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>下載備份檔案 (.json)</span>
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>重置範例</span>
                 </button>
               </div>
-
-              {/* Import JSON */}
-              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-950/60 flex flex-col justify-between gap-3">
-                <div>
-                  <div className="font-bold text-slate-200">匯入 JSON 備份</div>
-                  <p className="text-slate-400 mt-0.5">
-                    還原過往備份的情報庫檔案或與其他設備同步。
-                  </p>
-                </div>
-                <label className="flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors cursor-pointer">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>選擇 JSON 檔案匯入</span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                </label>
-              </div>
             </div>
-
-            {importError && (
-              <div className="text-rose-300 bg-rose-950/40 border border-rose-800/60 p-2.5 rounded-lg flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{importError}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Reset to Seeds */}
-          <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
-            <div>
-              <div className="font-bold text-slate-200">重設為初始精選示範資料</div>
-              <p className="text-slate-400">將情報庫還原至初始推薦的 GitHub 與素材庫資料。</p>
-            </div>
-            <button
-              onClick={() => {
-                if (confirm('確定要將所有收藏與分類重設為初始示範資料嗎？現有新增的項目將會被重設。')) {
-                  onResetData();
-                  onClose();
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-rose-400 hover:bg-rose-950/40 border border-rose-800/60 rounded-lg font-semibold transition-colors shrink-0"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>重置範例</span>
-            </button>
-          </div>
+          )}
 
         </div>
 
@@ -330,7 +780,7 @@ export default function SettingsModal({
         <div className="px-6 py-3 bg-slate-950/80 border-t border-slate-800 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 rounded-lg text-xs font-semibold transition-colors"
+            className="px-4 py-1.5 bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
           >
             關閉
           </button>

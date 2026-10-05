@@ -553,3 +553,194 @@ ${ghDetails ? `GitHub 資訊：${ghDetails.description}, Stars: ${ghDetails.star
       : undefined,
   };
 }
+
+// ==========================================
+// 動態獲取與預設可用 AI 模型清單 (免手動輸入)
+// ==========================================
+
+export const DEFAULT_PROVIDER_MODELS = {
+  gemini: [
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (推薦 / 快速且強大)' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (最新次世代)' },
+    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (深度推理)' },
+    { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite (極速輕量)' },
+  ],
+  custom: [
+    { id: 'llama3', name: 'llama3 (本機推薦)' },
+    { id: 'deepseek-r1', name: 'deepseek-r1 (推理思考模型)' },
+    { id: 'qwen2.5', name: 'qwen2.5 (繁中優化)' },
+    { id: 'mistral', name: 'mistral' },
+    { id: 'gemma2', name: 'gemma2' },
+  ],
+  openai: [
+    { id: 'gpt-4o-mini', name: 'GPT-4o mini (高性價比推薦)' },
+    { id: 'gpt-4o', name: 'GPT-4o (旗艦多模態)' },
+    { id: 'o3-mini', name: 'o3-mini (深度推理模型)' },
+    { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+  ],
+  groq: [
+    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile (推薦極速)' },
+    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant (最速回應)' },
+    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
+  ],
+  openrouter: [
+    { id: 'anthropic/claude-3.5-haiku', name: 'Claude 3.5 Haiku' },
+    { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini' },
+    { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Meta Llama 3.3 70B' },
+    { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1' },
+    { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free)' },
+  ],
+  mock: [
+    { id: 'built-in', name: 'LinkVault 內建在地智慧分析引擎' },
+  ],
+};
+
+/**
+ * 動態從服務商端點獲取最新模型清單
+ */
+export async function fetchAvailableModels({ provider = 'gemini', apiKey = '', baseUrl = '' }) {
+  // 1. Google Gemini
+  if (provider === 'gemini') {
+    if (apiKey && apiKey.trim()) {
+      const endpoint = baseUrl?.trim()
+        ? `${baseUrl.trim().replace(/\/$/, '')}/models?key=${apiKey.trim()}`
+        : `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey.trim()}`;
+
+      const res = await fetch(endpoint);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error?.message || `Gemini API 回傳狀態 ${res.status}`);
+      }
+      const data = await res.json();
+      const rawList = data.models || [];
+      const filtered = rawList
+        .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+        .map((m) => {
+          const id = m.name.replace(/^models\//, '');
+          const label = m.displayName ? `${m.displayName} (${id})` : id;
+          return { id, name: label };
+        })
+        .sort((a, b) => {
+          // 將常用 Flash / Pro 優先排在最前
+          if (a.id.includes('flash') && !b.id.includes('flash')) return -1;
+          if (!a.id.includes('flash') && b.id.includes('flash')) return 1;
+          return a.id.localeCompare(b.id);
+        });
+
+      if (filtered.length > 0) return filtered;
+    }
+    return DEFAULT_PROVIDER_MODELS.gemini;
+  }
+
+  // 2. 自訂端點 (Ollama / LM Studio / 本地代理)
+  if (provider === 'custom') {
+    const cleanBase = (baseUrl || 'http://localhost:11434/v1').trim().replace(/\/$/, '');
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey.trim()) {
+      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+
+    // 優先調用標準 OpenAI 相容 /models 端點 (例如 http://localhost:11434/v1/models 或 LM Studio)
+    const modelsUrl = cleanBase.endsWith('/models') ? cleanBase : `${cleanBase}/models`;
+    let res = null;
+    try {
+      res = await fetch(modelsUrl, { headers });
+    } catch {
+      // 捕獲網路連線失敗
+    }
+
+    // 若標準 /v1/models 失敗且為預設 Ollama 端口，嘗試 Ollama 原生 /api/tags
+    if (!res || !res.ok) {
+      if (cleanBase.includes('11434')) {
+        const ollamaBase = cleanBase.replace(/\/v1$/, '');
+        try {
+          const oRes = await fetch(`${ollamaBase}/api/tags`);
+          if (oRes.ok) {
+            const oData = await oRes.json();
+            const models = (oData.models || []).map((m) => ({
+              id: m.name,
+              name: m.size ? `${m.name} (${(m.size / (1024 * 1024 * 1024)).toFixed(1)} GB)` : m.name,
+            }));
+            if (models.length > 0) return models;
+          }
+        } catch {
+          // 忽略
+        }
+      }
+      throw new Error(`無法連接至本機端點 (${modelsUrl})，請確認 Ollama 或 LM Studio 是否已啟動`);
+    }
+
+    const data = await res.json();
+    const list = (data.data || data.models || [])
+      .map((m) => {
+        const id = typeof m === 'string' ? m : (m.id || m.name);
+        return { id, name: id };
+      })
+      .filter((m) => Boolean(m.id));
+
+    if (list.length === 0) {
+      throw new Error('本機端點已連線，但目前未偵測到已安裝的模型，請先於本機 pull 模型');
+    }
+    return list;
+  }
+
+  // 3. OpenAI
+  if (provider === 'openai') {
+    if (!apiKey || !apiKey.trim()) {
+      return DEFAULT_PROVIDER_MODELS.openai;
+    }
+    const res = await fetch('https://api.openai.com/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey.trim()}` },
+    });
+    if (!res.ok) {
+      throw new Error(`OpenAI API 回應錯誤 ${res.status}`);
+    }
+    const data = await res.json();
+    const list = (data.data || [])
+      .map((m) => ({ id: m.id, name: m.id }))
+      .filter((m) => m.id.startsWith('gpt-') || m.id.startsWith('o1') || m.id.startsWith('o3'))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    return list.length > 0 ? list : DEFAULT_PROVIDER_MODELS.openai;
+  }
+
+  // 4. Groq
+  if (provider === 'groq') {
+    if (!apiKey || !apiKey.trim()) {
+      return DEFAULT_PROVIDER_MODELS.groq;
+    }
+    const res = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey.trim()}` },
+    });
+    if (!res.ok) {
+      throw new Error(`Groq API 回應錯誤 ${res.status}`);
+    }
+    const data = await res.json();
+    const list = (data.data || [])
+      .map((m) => ({ id: m.id, name: m.id }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    return list.length > 0 ? list : DEFAULT_PROVIDER_MODELS.groq;
+  }
+
+  // 5. OpenRouter
+  if (provider === 'openrouter') {
+    const headers = {};
+    if (apiKey && apiKey.trim()) {
+      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+    const res = await fetch('https://openrouter.ai/api/v1/models', { headers });
+    if (!res.ok) {
+      throw new Error(`OpenRouter API 回應錯誤 ${res.status}`);
+    }
+    const data = await res.json();
+    const list = (data.data || [])
+      .slice(0, 80)
+      .map((m) => ({
+        id: m.id,
+        name: m.name ? `${m.name} (${m.id})` : m.id,
+      }));
+    return list.length > 0 ? list : DEFAULT_PROVIDER_MODELS.openrouter;
+  }
+
+  return DEFAULT_PROVIDER_MODELS[provider] || [];
+}

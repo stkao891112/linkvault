@@ -7,8 +7,7 @@ import {
   Search,
   Settings,
   X,
-  Bookmark,
-  ExternalLink
+  Cloud,
 } from 'lucide-react';
 
 export default function Header({
@@ -19,7 +18,8 @@ export default function Header({
   onOpenAddModal,
   onOpenSettings,
   totalCount,
-  filteredCount
+  filteredCount,
+  supabaseSyncStatus = 'OFFLINE',
 }) {
   return (
     <header className="sticky top-0 z-30 bg-slate-950/85 border-b border-slate-800/80 shadow-lg shadow-black/20 backdrop-blur-xl">
@@ -99,6 +99,36 @@ export default function Header({
                 <span>表格</span>
               </button>
             </div>
+
+            {/* Supabase Cloud Sync Quick Indicator */}
+            <button
+              onClick={onOpenSettings}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                supabaseSyncStatus === 'SUBSCRIBED'
+                  ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:bg-emerald-900/50'
+                  : supabaseSyncStatus === 'CONNECTED'
+                  ? 'bg-blue-950/40 border-blue-500/40 text-blue-300 hover:bg-blue-900/50'
+                  : 'bg-slate-900/80 border-slate-700/60 text-slate-400 hover:text-slate-200'
+              }`}
+              title={
+                supabaseSyncStatus === 'SUBSCRIBED'
+                  ? 'Supabase 雲端雙向即時同步中 (點擊開啟設定)'
+                  : '本地離線模式 (點擊設定 Supabase 跨裝置同步)'
+              }
+            >
+              {supabaseSyncStatus === 'SUBSCRIBED' ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="hidden sm:inline text-[11px] font-semibold">即時同步</span>
+                </>
+              ) : (
+                <>
+                  <Cloud className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="hidden sm:inline text-[11px]">本地模式</span>
+                </>
+              )}
+            </button>
 
             {/* Settings & Import/Export */}
             <button

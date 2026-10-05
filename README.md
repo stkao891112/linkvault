@@ -34,7 +34,8 @@
 - **動態微互動**：Framer Motion (`motion`)
 - **圖標庫**：Lucide React
 - **打包最佳化**：Vite Singlefile Plugin
-- **資料持久化**：Browser LocalStorage + JSON Export/Import
+- **雲端資料庫**：Supabase (`@supabase/supabase-js` - 繁體中文「書籤情報」與「知識分類」資料表、Realtime 雙向秒級推播)
+- **資料持久化**：Supabase Realtime + Local-First 離線 LocalStorage + JSON 備份匯出/匯入
 
 ---
 
@@ -61,6 +62,20 @@ npm run dev -- --host
 npm run build
 ```
 打包產物位於 `dist/index.html`，為完全獨立的單一 HTML 檔案。
+
+---
+
+## ☁️ Supabase 跨裝置雙向即時同步設定
+
+1. 前往 [Supabase](https://supabase.com) 建立專案。
+2. 進入「**SQL Editor**」，點擊應用程式設定面板中的「**一鍵複製 Supabase 建表 SQL**」貼上並執行：
+   - 自動建立繁體中文資料表：`「書籤情報」` 與 `「知識分類」`。
+   - 自動配置 RLS 權限與啟用 `supabase_realtime` 即時廣播發布。
+3. **免手動輸入配置**（推薦）：在 Vercel 專案後台 Environment Variables 設定：
+   - `SUPABASE_URL`：您的 Supabase 專案 URL
+   - `SUPABASE_ANON_KEY`：您的 Supabase Anon Public Key
+   - 電腦端與手機端開啟網站即全自動連線並秒級即時同步！
+4. **手動配置**：在網站右上角設定圖標 ->「雲端即時同步 (Supabase)」分頁輸入 Project URL 與 Anon Key 即可啟用。
 
 ---
 

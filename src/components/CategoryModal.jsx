@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   X,
   Plus,
@@ -14,7 +14,6 @@ import {
   Flame,
   Heart,
   Cpu,
-  Bookmark,
   Check
 } from 'lucide-react';
 import { GithubIcon } from './Icons';
@@ -54,8 +53,6 @@ export default function CategoryModal({
   onAddCategory,
   onDeleteCategory,
 }) {
-  if (!isOpen) return null;
-
   const [categoryName, setCategoryName] = useState('');
   const [selectedColor, setSelectedColor] = useState(COLOR_PALETTE[0]);
   const [selectedIcon, setSelectedIcon] = useState('Folder');
@@ -86,6 +83,8 @@ export default function CategoryModal({
     setCategoryName('');
     setErrorMsg('');
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">

@@ -9,12 +9,23 @@ import BookmarkDetailModal from './components/BookmarkDetailModal';
 import CategoryModal from './components/CategoryModal';
 import SettingsModal from './components/SettingsModal';
 import { INITIAL_CATEGORIES, INITIAL_BOOKMARKS } from './data/initialData';
+import {
+  resolveSupabaseConfig,
+  initSupabase,
+  saveStoredSupabaseConfig,
+  fetchCategoriesFromSupabase,
+  fetchBookmarksFromSupabase,
+  upsertBookmarkToSupabase,
+  deleteBookmarkFromSupabase,
+  upsertCategoryToSupabase,
+  deleteCategoryFromSupabase,
+  batchUploadAllToSupabase,
+  subscribeToRealtimeChanges,
+} from './services/supabaseService';
 import { AnimatePresence } from 'motion/react';
 import {
-  Sparkles,
-  Plus,
   Compass,
-  CheckCircle2
+  CheckCircle2,
 } from 'lucide-react';
 
 export default function App() {
@@ -37,7 +48,12 @@ export default function App() {
     }
   });
 
-  // 2. Filter & View Mode State
+  // 2. Supabase Cloud Sync & Realtime State
+  const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '', source: 'none' });
+  const [supabaseSyncStatus, setSupabaseSyncStatus] = useState('OFFLINE'); // 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SUBSCRIBED'
+  const [reconnectTrigger, setReconnectTrigger] = useState(0);
+
+  // 3. Filter & View Mode State
   const [selectedCategory, setSelectedCategory] = useState('cat-all');
   const [selectedTag, setSelectedTag] = useState('');
   const [filterFavorite, setFilterFavorite] = useState(false);
@@ -52,13 +68,13 @@ export default function App() {
     }
   });
 
-  // 3. Modal Controls
+  // 4. Modal Controls
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [detailBookmark, setDetailBookmark] = useState(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
-  // 4. AI & Settings State
+  // 5. AI & Settings State
   const [customApiKey, setCustomApiKey] = useState(() => {
     try {
       return localStorage.getItem('linkvault_custom_apikey') || localStorage.getItem('sitevault_custom_apikey') || '';
@@ -91,7 +107,7 @@ export default function App() {
     }
   });
 
-  // 5. Toast Feedback State
+  // 6. Toast Feedback State
   const [toast, setToast] = useState(null);
 
   const showToast = (message, type = 'success') => {
@@ -136,6 +152,133 @@ export default function App() {
       console.warn('LocalStorage save failed:', e);
     }
   }, [customApiKey, apiProvider, customBaseUrl, customModel]);
+
+  // ==========================================
+  // Supabase Cloud Sync Initialization & Realtime Subscription
+  // ==========================================
+  useEffect(() => {
+    let unsubscribe = () => {};
+    let isMounted = true;
+
+    async function initializeSupabase() {
+      try {
+        const config = await resolveSupabaseConfig();
+        if (!isMounted) return;
+        setSupabaseConfig(config);
+
+        if (!config.url || !config.anonKey) {
+          setSupabaseSyncStatus('OFFLINE');
+          return;
+        }
+
+        setSupabaseSyncStatus('CONNECTING');
+        const client = initSupabase(config.url, config.anonKey);
+        if (!client) {
+          setSupabaseSyncStatus('OFFLINE');
+          return;
+        }
+
+        // Fetch remote data from Supabase
+        const [remoteCats, remoteBms] = await Promise.all([
+          fetchCategoriesFromSupabase(),
+          fetchBookmarksFromSupabase(),
+        ]);
+
+        if (!isMounted) return;
+
+        let hasRemoteData = false;
+
+        // If remote has bookmarks, sync them down
+        if (remoteBms && remoteBms.length > 0) {
+          setBookmarks(remoteBms);
+          hasRemoteData = true;
+        }
+
+        // If remote has categories, sync them down
+        if (remoteCats && remoteCats.length > 0) {
+          setCategories(remoteCats);
+          hasRemoteData = true;
+        }
+
+        // If remote tables exist but are empty, seed with current local data
+        if (remoteBms !== null && remoteCats !== null && remoteBms.length === 0 && bookmarks.length > 0) {
+          try {
+            await batchUploadAllToSupabase(bookmarks, categories);
+            showToast('已自動將本機情報資料初始化推播至 Supabase 雲端！');
+          } catch (seedErr) {
+            console.warn('Initial cloud seed warning:', seedErr);
+          }
+        } else if (hasRemoteData) {
+          showToast('🟢 已連線 Supabase 雲端資料庫並同步最新資料');
+        }
+
+        // Subscribe to Supabase Realtime changes
+        unsubscribe = subscribeToRealtimeChanges({
+          onBookmarkInsert: (newBm) => {
+            setBookmarks((prev) => {
+              if (prev.some((b) => b.id === newBm.id)) return prev;
+              return [newBm, ...prev];
+            });
+            showToast(`跨裝置即時推播：已同步收錄「${newBm.title?.slice(0, 16)}...」`);
+          },
+          onBookmarkUpdate: (updatedBm) => {
+            setBookmarks((prev) =>
+              prev.map((b) => (b.id === updatedBm.id ? updatedBm : b))
+            );
+            setDetailBookmark((prev) => (prev?.id === updatedBm.id ? updatedBm : prev));
+          },
+          onBookmarkDelete: (id) => {
+            setBookmarks((prev) => prev.filter((b) => b.id !== id));
+            setDetailBookmark((prev) => (prev?.id === id ? null : prev));
+          },
+          onCategoryInsert: (newCat) => {
+            setCategories((prev) => {
+              if (prev.some((c) => c.id === newCat.id)) return prev;
+              return [...prev, newCat];
+            });
+          },
+          onCategoryUpdate: (updatedCat) => {
+            setCategories((prev) =>
+              prev.map((c) => (c.id === updatedCat.id ? updatedCat : c))
+            );
+          },
+          onCategoryDelete: (catId) => {
+            setCategories((prev) => prev.filter((c) => c.id !== catId));
+          },
+          onStatusChange: (status) => {
+            if (!isMounted) return;
+            if (status === 'SUBSCRIBED') {
+              setSupabaseSyncStatus('SUBSCRIBED');
+            } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              setSupabaseSyncStatus('CONNECTED');
+            }
+          },
+        });
+      } catch (err) {
+        console.warn('Supabase sync init exception:', err);
+        if (isMounted) setSupabaseSyncStatus('OFFLINE');
+      }
+    }
+
+    initializeSupabase();
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, [reconnectTrigger]);
+
+  const handleSaveSupabaseConfig = (newUrl, newKey) => {
+    saveStoredSupabaseConfig({ url: newUrl, anonKey: newKey });
+    setReconnectTrigger((prev) => prev + 1);
+    showToast('Supabase 連線設定已儲存');
+  };
+
+  const handleManualSyncToCloud = async () => {
+    const res = await batchUploadAllToSupabase(bookmarks, categories);
+    showToast(`已成功同步 ${res.bmSuccessCount} 筆書籤與 ${res.catSuccessCount} 個分類至雲端！`);
+    return res;
+  };
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -220,6 +363,7 @@ export default function App() {
   // Actions
   const handleSaveBookmark = (newBm) => {
     setBookmarks((prev) => [newBm, ...prev]);
+    upsertBookmarkToSupabase(newBm).catch((err) => console.warn('Supabase upsert failed:', err));
     showToast(`成功收錄「${newBm.title.slice(0, 20)}...」並完成 AI 提煉！`);
   };
 
@@ -228,29 +372,44 @@ export default function App() {
     if (detailBookmark?.id === updatedBm.id) {
       setDetailBookmark(updatedBm);
     }
+    upsertBookmarkToSupabase(updatedBm).catch((err) => console.warn('Supabase update failed:', err));
   };
 
   const handleDeleteBookmark = (id) => {
     setBookmarks((prev) => prev.filter((b) => b.id !== id));
+    deleteBookmarkFromSupabase(id).catch((err) => console.warn('Supabase delete failed:', err));
     showToast('已自情報庫中刪除', 'info');
   };
 
   const handleToggleFavorite = (id) => {
     setBookmarks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, isFavorite: !b.isFavorite } : b))
+      prev.map((b) => {
+        if (b.id === id) {
+          const updated = { ...b, isFavorite: !b.isFavorite };
+          upsertBookmarkToSupabase(updated).catch((err) => console.warn('Supabase fav update failed:', err));
+          return updated;
+        }
+        return b;
+      })
     );
   };
 
   const handleToggleStatus = (id) => {
     setBookmarks((prev) =>
-      prev.map((b) =>
-        b.id === id ? { ...b, status: b.status === 'read' ? 'unread' : 'read' } : b
-      )
+      prev.map((b) => {
+        if (b.id === id) {
+          const updated = { ...b, status: b.status === 'read' ? 'unread' : 'read' };
+          upsertBookmarkToSupabase(updated).catch((err) => console.warn('Supabase status update failed:', err));
+          return updated;
+        }
+        return b;
+      })
     );
   };
 
   const handleAddCategory = (newCat) => {
     setCategories((prev) => [...prev, newCat]);
+    upsertCategoryToSupabase(newCat).catch((err) => console.warn('Supabase add category failed:', err));
     showToast(`已建立「${newCat.name}」自訂分類`);
   };
 
@@ -259,6 +418,7 @@ export default function App() {
     setBookmarks((prev) =>
       prev.map((b) => (b.categoryId === catId ? { ...b, categoryId: 'cat-tools' } : b))
     );
+    deleteCategoryFromSupabase(catId).catch((err) => console.warn('Supabase delete category failed:', err));
     if (selectedCategory === catId) {
       setSelectedCategory('cat-all');
     }
@@ -272,6 +432,11 @@ export default function App() {
     setSelectedTag('');
     setFilterFavorite(false);
     setFilterUnread(false);
+    if (supabaseSyncStatus === 'SUBSCRIBED' || supabaseSyncStatus === 'CONNECTED') {
+      batchUploadAllToSupabase(INITIAL_BOOKMARKS, INITIAL_CATEGORIES).catch((err) =>
+        console.warn('Supabase reset upload failed:', err)
+      );
+    }
     showToast('已重設為初始示範資料');
   };
 
@@ -280,10 +445,13 @@ export default function App() {
     if (newCategories && newCategories.length > 0) {
       setCategories(newCategories);
     }
+    if (supabaseSyncStatus === 'SUBSCRIBED' || supabaseSyncStatus === 'CONNECTED') {
+      batchUploadAllToSupabase(newBookmarks, newCategories || categories).catch((err) =>
+        console.warn('Supabase import upload failed:', err)
+      );
+    }
     showToast(`已成功匯入 ${newBookmarks.length} 筆收藏資料！`);
   };
-
-  const currentCategoryObj = categories.find((c) => c.id === selectedCategory);
 
   const categoryCounts = useMemo(() => {
     const counts = { 'cat-all': bookmarks.length };
@@ -309,7 +477,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       
-      {/* Top Fixed Header */}
+      {/* Top Fixed Header with Realtime Sync Status Indicator */}
       <Header
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -319,6 +487,7 @@ export default function App() {
         onOpenSettings={() => setIsSettingsModalOpen(true)}
         totalCount={bookmarks.length}
         filteredCount={filteredBookmarks.length}
+        supabaseSyncStatus={supabaseSyncStatus}
       />
 
       {/* Main Single-Column Fluid Container */}
@@ -379,7 +548,7 @@ export default function App() {
                     setFilterFavorite(false);
                     setFilterUnread(false);
                   }}
-                  className="px-3.5 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition-colors border border-slate-700"
+                  className="px-3.5 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-medium transition-colors border border-slate-700 cursor-pointer"
                 >
                   清除所有篩選
                 </button>
@@ -452,7 +621,7 @@ export default function App() {
         onDeleteCategory={handleDeleteCategory}
       />
 
-      {/* Settings & Import/Export Modal */}
+      {/* Settings & Supabase Cloud Sync Modal */}
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
@@ -468,6 +637,10 @@ export default function App() {
         setCustomBaseUrl={setCustomBaseUrl}
         customModel={customModel}
         setCustomModel={setCustomModel}
+        supabaseConfig={supabaseConfig}
+        supabaseSyncStatus={supabaseSyncStatus}
+        onSaveSupabaseConfig={handleSaveSupabaseConfig}
+        onManualSyncToCloud={handleManualSyncToCloud}
       />
 
       {/* Global Toast Notification */}
