@@ -2,12 +2,10 @@ import React, { useState } from 'react';
 import {
   Sparkles,
   Link2,
-  ArrowRight,
   Loader2,
   ChevronDown,
   ChevronUp,
   MessageSquare,
-  Folder,
   Lightbulb,
   CheckCircle2
 } from 'lucide-react';
@@ -149,64 +147,107 @@ export default function QuickAddHero({
 
       {/* Main Hero Input Box */}
       <form onSubmit={handleStartAnalysis} className="relative z-10 max-w-3xl mx-auto space-y-3">
-        <div className="flex flex-col sm:flex-row items-stretch gap-2.5 p-2 rounded-2xl bg-slate-950/90 border border-slate-700/80 focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all shadow-xl">
-          <div className="flex-1 flex items-center pl-3.5 pr-2 gap-3 min-h-[48px]">
-            <Link2 className="w-5 h-5 text-indigo-400 shrink-0" />
-            <input
-              type="url"
-              placeholder="貼上網址 (例：https://github.com/... 或 https://...)"
-              value={url}
-              onChange={(e) => {
-                setUrl(e.target.value);
-                setErrorMsg('');
-              }}
-              className="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 outline-none font-mono"
-            />
-          </div>
+        {/* Outer Glow & Border Beam Container */}
+        <div className={`relative p-[1.5px] rounded-2xl transition-all duration-300 ${
+          isAnalyzing ? 'shadow-2xl shadow-indigo-500/25' : ''
+        }`}>
+          {/* Neon Border Beam & Pulse Shimmer when isAnalyzing */}
+          {isAnalyzing && (
+            <>
+              {/* Rotating Conic Border Beam */}
+              <div className="absolute inset-0 rounded-2xl overflow-hidden pointer-events-none">
+                <div
+                  className="absolute -inset-[150%] animate-border-beam"
+                  style={{
+                    background:
+                      'conic-gradient(from 0deg, transparent 0 310deg, #6366f1 330deg, #ec4899 348deg, #38bdf8 360deg)',
+                  }}
+                />
+              </div>
 
-          <div className="flex items-center gap-2 shrink-0 px-1 pb-1 sm:p-0">
-            <button
-              type="button"
-              onClick={() => setShowOptions(!showOptions)}
-              className={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors flex items-center gap-1.5 ${
-                showOptions || userNote
-                  ? 'bg-slate-800 text-indigo-300 border-indigo-500/30'
-                  : 'bg-slate-900/90 text-slate-400 hover:text-slate-200 border-slate-800 hover:border-slate-700'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>筆記備註</span>
-              {showOptions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-            </button>
+              {/* Ambient Outer Glow Pulse */}
+              <div
+                className="absolute -inset-1 rounded-2xl blur-md opacity-75 animate-beam-pulse pointer-events-none"
+                style={{
+                  background:
+                    'conic-gradient(from 0deg, transparent 0 310deg, #6366f1 330deg, #ec4899 348deg, #38bdf8 360deg)',
+                }}
+              />
+            </>
+          )}
 
-            {!analysisResult ? (
-              <button
-                type="submit"
-                disabled={isAnalyzing || !url.trim()}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-indigo-500/25 transition-all"
-              >
-                {isAnalyzing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>提煉中...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>AI 提煉重點</span>
-                  </>
-                )}
-              </button>
-            ) : (
+          {/* Actual Input Row Container */}
+          <div className={`relative z-10 flex flex-col sm:flex-row items-stretch gap-2.5 p-2 rounded-2xl bg-slate-950/95 border transition-all shadow-xl ${
+            isAnalyzing
+              ? 'border-indigo-500/60 ring-2 ring-indigo-500/30'
+              : 'border-slate-700/80 focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20'
+          }`}>
+            {/* Shimmer sweep scanner bar during analysis */}
+            {isAnalyzing && (
+              <div className="absolute inset-x-0 top-0 h-[2px] overflow-hidden rounded-t-2xl pointer-events-none">
+                <div className="w-1/2 h-full bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-shimmer-sweep" />
+              </div>
+            )}
+
+            <div className="flex-1 flex items-center pl-3.5 pr-2 gap-3 min-h-[48px]">
+              <Link2 className={`w-5 h-5 shrink-0 transition-colors ${isAnalyzing ? 'text-cyan-400 animate-pulse' : 'text-indigo-400'}`} />
+              <input
+                type="url"
+                placeholder="貼上網址 (例：https://github.com/... 或 https://...)"
+                value={url}
+                disabled={isAnalyzing}
+                onChange={(e) => {
+                  setUrl(e.target.value);
+                  setErrorMsg('');
+                }}
+                className="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 outline-none font-mono"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 px-1 pb-1 sm:p-0">
               <button
                 type="button"
-                onClick={handleConfirmSave}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-emerald-500/25 transition-all"
+                onClick={() => setShowOptions(!showOptions)}
+                className={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors flex items-center gap-1.5 ${
+                  showOptions || userNote
+                    ? 'bg-slate-800 text-indigo-300 border-indigo-500/30'
+                    : 'bg-slate-900/90 text-slate-400 hover:text-slate-200 border-slate-800 hover:border-slate-700'
+                }`}
               >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>存入知識庫</span>
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>筆記備註</span>
+                {showOptions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </button>
-            )}
+
+              {!analysisResult ? (
+                <button
+                  type="submit"
+                  disabled={isAnalyzing || !url.trim()}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-indigo-500/25 transition-all"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-cyan-300" />
+                      <span className="text-cyan-100">提煉中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>AI 提煉重點</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleConfirmSave}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs sm:text-sm font-semibold shadow-lg shadow-emerald-500/25 transition-all"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>存入知識庫</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

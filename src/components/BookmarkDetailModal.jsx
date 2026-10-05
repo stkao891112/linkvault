@@ -9,14 +9,14 @@ import {
   Check,
   Trash2,
   CheckCircle2,
-  Clock,
   Save,
-  Tag,
-  Plus,
   RotateCw,
-  Folder
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { analyzeUrlWithAI } from '../services/aiService';
+import { getDomainTheme } from '../utils/domainTheme';
 
 export default function BookmarkDetailModal({
   bookmark,
@@ -29,6 +29,12 @@ export default function BookmarkDetailModal({
   apiProvider,
   customBaseUrl = '',
   customModel = '',
+  onNavigateNext,
+  onNavigatePrev,
+  hasNext = false,
+  hasPrev = false,
+  currentIndex = 0,
+  totalCount = 0,
 }) {
   const [userNote, setUserNote] = useState(bookmark?.userNote || '');
   const [selectedCatId, setSelectedCatId] = useState(bookmark?.categoryId || 'cat-tools');
@@ -47,6 +53,7 @@ export default function BookmarkDetailModal({
   }, [bookmark]);
 
   const currentCategory = categories.find((c) => c.id === selectedCatId);
+  const theme = bookmark ? getDomainTheme(bookmark.domain, bookmark.categoryId) : null;
 
   const handleSaveNotesAndMeta = () => {
     const updated = {
@@ -122,73 +129,119 @@ export default function BookmarkDetailModal({
     onUpdateBookmark({ ...bookmark, status: nextStatus });
   };
 
-  if (!isOpen || !bookmark) return null;
-
-  if (!isOpen || !bookmark) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 max-w-3xl w-full max-h-[94vh] sm:max-h-[92vh] flex flex-col overflow-hidden text-slate-100">
-        
-        {/* Header */}
-        <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-800 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-slate-950 flex items-center justify-center overflow-hidden shrink-0 border border-slate-800">
-              <img
-                src={bookmark.favicon}
-                alt=""
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                }}
-                className="w-5 h-5 object-contain"
-              />
-            </div>
-            <div className="min-w-0">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-                {bookmark.domain}
-              </span>
-              <span className="text-[11px] text-slate-500">
-                收錄於 {new Date(bookmark.createdAt).toLocaleDateString('zh-TW')}
-              </span>
-            </div>
-          </div>
+    <AnimatePresence>
+      {isOpen && bookmark && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          {/* 1. Backdrop (Semi-transparent, preserves stage background visibility) */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs cursor-pointer"
+          />
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleToggleFav}
-              className={`p-2 rounded-lg border transition-colors ${
-                bookmark.isFavorite
-                  ? 'bg-amber-950/40 border-amber-500/30 text-amber-400'
-                  : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-300'
-              }`}
-              title={bookmark.isFavorite ? '已加最愛' : '加入最愛'}
+          {/* 2. Slide-over Drawer Container */}
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-6 sm:pl-10 pointer-events-none">
+            <motion.aside
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 280 }}
+              className="pointer-events-auto w-screen max-w-2xl bg-slate-900/95 backdrop-blur-2xl border-l border-slate-800 shadow-2xl shadow-black/80 flex flex-col overflow-hidden text-slate-100"
             >
-              <Star className={`w-4 h-4 ${bookmark.isFavorite ? 'fill-amber-400' : ''}`} />
-            </button>
+              {/* Header: Title, Navigation, Actions */}
+              <div className="px-5 py-4 border-b border-slate-800/80 bg-slate-950/60 flex items-center justify-between gap-3 shrink-0">
+                {/* Left: Domain + Pagination Indicator */}
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-slate-950 flex items-center justify-center overflow-hidden shrink-0 border border-slate-800">
+                    <img
+                      src={bookmark.favicon}
+                      alt=""
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                      className="w-5 h-5 object-contain"
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border truncate ${theme?.badgeClass || 'text-slate-300'}`}>
+                        {bookmark.domain}
+                      </span>
+                      {totalCount > 0 && (
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {currentIndex + 1} / {totalCount}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-            <button
-              onClick={handleToggleStatus}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-                bookmark.status === 'read'
-                  ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
-                  : 'bg-violet-950/40 border-violet-500/30 text-violet-400'
-              }`}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>{bookmark.status === 'read' ? '已掌握' : '待研讀'}</span>
-            </button>
+                {/* Right: J/K Arrow Navigation, Star, Status, Close */}
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  {/* Prev/Next Keyboard Navigation Arrows */}
+                  <div className="flex items-center bg-slate-950 rounded-lg border border-slate-800 p-0.5 mr-1">
+                    <button
+                      onClick={onNavigatePrev}
+                      disabled={!hasPrev}
+                      title="上一篇 (快捷鍵: K)"
+                      className="p-1 rounded text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400 hover:bg-slate-800 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <span className="text-[10px] text-slate-500 px-1 font-mono select-none">K / J</span>
+                    <button
+                      onClick={onNavigateNext}
+                      disabled={!hasNext}
+                      title="下一篇 (快捷鍵: J)"
+                      className="p-1 rounded text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:hover:text-slate-400 hover:bg-slate-800 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
 
-            <button
-              onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors ml-1"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
+                  {/* Favorite button with F shortcut hint */}
+                  <button
+                    onClick={handleToggleFav}
+                    className={`p-2 rounded-lg border transition-colors cursor-pointer ${
+                      bookmark.isFavorite
+                        ? 'bg-amber-950/40 border-amber-500/30 text-amber-400'
+                        : 'bg-slate-950 border-slate-800 text-slate-500 hover:text-slate-300'
+                    }`}
+                    title={bookmark.isFavorite ? '已加最愛 (快捷鍵: F)' : '加入最愛 (快捷鍵: F)'}
+                  >
+                    <Star className={`w-4 h-4 ${bookmark.isFavorite ? 'fill-amber-400' : ''}`} />
+                  </button>
 
-        {/* Scrollable Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                  {/* Status Toggle */}
+                  <button
+                    onClick={handleToggleStatus}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                      bookmark.status === 'read'
+                        ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400'
+                        : 'bg-violet-950/40 border-violet-500/30 text-violet-400'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>{bookmark.status === 'read' ? '已掌握' : '待研讀'}</span>
+                  </button>
+
+                  {/* Close button with Esc hint */}
+                  <button
+                    onClick={onClose}
+                    className="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors ml-1 cursor-pointer"
+                    title="關閉抽屜 (快捷鍵: Esc)"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable Body */}
+              <div className="p-6 overflow-y-auto space-y-6 flex-1">
           
           {/* Title & External Link */}
           <div>
@@ -215,6 +268,12 @@ export default function BookmarkDetailModal({
                   {bookmark.githubStats.language && (
                     <span className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono text-[11px] border border-slate-700/60">
                       {bookmark.githubStats.language}
+                    </span>
+                  )}
+                  {bookmark.githubStats?.forks != null && (
+                    <span className="flex items-center gap-1 text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded font-mono text-[11px] border border-slate-700/60">
+                      <GitFork className="w-3 h-3" />
+                      {bookmark.githubStats.forks.toLocaleString()} forks
                     </span>
                   )}
                 </div>
@@ -391,49 +450,70 @@ export default function BookmarkDetailModal({
 
         </div>
 
-        {/* Footer Toolbar */}
-        <div className="px-4 py-3 sm:px-6 sm:py-4 bg-slate-950/80 border-t border-slate-800 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-2">
-          <button
-            onClick={() => {
-              if (confirm('確定要刪除這筆收藏嗎？')) {
-                onDeleteBookmark(bookmark.id);
-                onClose();
-              }
-            }}
-            className="flex items-center justify-center gap-1.5 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 px-3 py-2.5 sm:py-2 rounded-lg transition-colors border border-rose-900/30 sm:border-transparent"
-          >
-            <Trash2 className="w-4 h-4" />
-            <span>刪除此收藏</span>
-          </button>
+              {/* Bottom Keyboard Navigation Hints & Action Toolbar */}
+              <div className="px-5 py-3.5 bg-slate-950/90 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+                {/* Keyboard Navigation Shortcuts Bar */}
+                <div className="hidden sm:flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+                  <span className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 text-[10px]">J</kbd> 下一篇
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 text-[10px]">K</kbd> 上一篇
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 text-[10px]">F</kbd> 標記最愛
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300 text-[10px]">Esc</kbd> 關閉
+                  </span>
+                </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleCopyMarkdown}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-semibold transition-all shadow-xs"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-400">已複製 Markdown</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  <span>複製 Markdown</span>
-                </>
-              )}
-            </button>
+                <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      if (confirm('確定要刪除這筆收藏嗎？')) {
+                        onDeleteBookmark(bookmark.id);
+                        onClose();
+                      }
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 px-3 py-2 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>刪除此情報</span>
+                  </button>
 
-            <button
-              onClick={onClose}
-              className="flex-1 sm:flex-none px-5 py-2.5 sm:py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg text-xs font-semibold transition-all shadow-lg shadow-indigo-500/25 text-center"
-            >
-              完成關閉
-            </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCopyMarkdown}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold transition-all shadow-xs cursor-pointer"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400">已複製</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>複製 Markdown</span>
+                        </>
+                      )}
+                    </button>
+
+                    <button
+                      onClick={onClose}
+                      className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl text-xs font-semibold transition-all shadow-lg shadow-indigo-500/25 cursor-pointer"
+                    >
+                      完成關閉
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </motion.aside>
           </div>
         </div>
-
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 }

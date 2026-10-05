@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Header from './components/Header';
 import QuickAddHero from './components/QuickAddHero';
 import FilterBar from './components/FilterBar';
@@ -8,6 +8,7 @@ import AddBookmarkModal from './components/AddBookmarkModal';
 import BookmarkDetailModal from './components/BookmarkDetailModal';
 import CategoryModal from './components/CategoryModal';
 import SettingsModal from './components/SettingsModal';
+import CommandPalette from './components/CommandPalette';
 import { INITIAL_CATEGORIES, INITIAL_BOOKMARKS } from './data/initialData';
 import {
   resolveSupabaseConfig,
@@ -73,6 +74,7 @@ export default function App() {
   const [detailBookmark, setDetailBookmark] = useState(null);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // 5. AI & Settings State
   const [customApiKey, setCustomApiKey] = useState(() => {
@@ -280,31 +282,7 @@ export default function App() {
     return res;
   };
 
-  // Global Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) {
-        return;
-      }
 
-      if (e.key === '/') {
-        e.preventDefault();
-        const searchInput = document.querySelector('input[type="text"]');
-        if (searchInput) searchInput.focus();
-      } else if (e.key === 'n' || e.key === 'N') {
-        e.preventDefault();
-        setIsAddModalOpen(true);
-      } else if (e.key === 'Escape') {
-        setIsAddModalOpen(false);
-        setDetailBookmark(null);
-        setIsCategoryModalOpen(false);
-        setIsSettingsModalOpen(false);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Filtered & Sorted Bookmarks
   const filteredBookmarks = useMemo(() => {
@@ -381,7 +359,7 @@ export default function App() {
     showToast('已自情報庫中刪除', 'info');
   };
 
-  const handleToggleFavorite = (id) => {
+  const handleToggleFavorite = useCallback((id) => {
     setBookmarks((prev) =>
       prev.map((b) => {
         if (b.id === id) {
@@ -392,7 +370,77 @@ export default function App() {
         return b;
       })
     );
-  };
+    setDetailBookmark((prev) => (prev?.id === id ? { ...prev, isFavorite: !prev.isFavorite } : prev));
+  }, []);
+
+  // Zero-Modal Drawer Navigation & Index Calculation
+  const currentDetailIndex = useMemo(() => {
+    if (!detailBookmark) return -1;
+    return filteredBookmarks.findIndex((b) => b.id === detailBookmark.id);
+  }, [detailBookmark, filteredBookmarks]);
+
+  const handleNavigateNext = useCallback(() => {
+    if (currentDetailIndex >= 0 && currentDetailIndex < filteredBookmarks.length - 1) {
+      setDetailBookmark(filteredBookmarks[currentDetailIndex + 1]);
+    } else if (!detailBookmark && filteredBookmarks.length > 0) {
+      setDetailBookmark(filteredBookmarks[0]);
+    }
+  }, [currentDetailIndex, detailBookmark, filteredBookmarks]);
+
+  const handleNavigatePrev = useCallback(() => {
+    if (currentDetailIndex > 0) {
+      setDetailBookmark(filteredBookmarks[currentDetailIndex - 1]);
+    }
+  }, [currentDetailIndex, filteredBookmarks]);
+
+  // Global Keyboard Shortcuts (Cmd+K, J, K, F, Esc, /, N)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // 1. Command Palette: Cmd+K (Mac) or Ctrl+K (Windows/Linux)
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      // If user is typing in input, textarea, or contentEditable, do not trigger single-key hotkeys
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable) {
+        if (e.key === 'Escape') {
+          e.target.blur();
+        }
+        return;
+      }
+
+      if (e.key === '/') {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[type="text"]');
+        if (searchInput) searchInput.focus();
+      } else if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        setIsAddModalOpen(true);
+      } else if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault();
+        handleNavigateNext();
+      } else if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        handleNavigatePrev();
+      } else if (e.key === 'f' || e.key === 'F') {
+        if (detailBookmark) {
+          e.preventDefault();
+          handleToggleFavorite(detailBookmark.id);
+        }
+      } else if (e.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+        setIsAddModalOpen(false);
+        setDetailBookmark(null);
+        setIsCategoryModalOpen(false);
+        setIsSettingsModalOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [detailBookmark, handleNavigateNext, handleNavigatePrev, handleToggleFavorite]);
 
   const handleToggleStatus = (id) => {
     setBookmarks((prev) =>
@@ -485,6 +533,7 @@ export default function App() {
         setViewMode={setViewMode}
         onOpenAddModal={() => setIsAddModalOpen(true)}
         onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         totalCount={bookmarks.length}
         filteredCount={filteredBookmarks.length}
         supabaseSyncStatus={supabaseSyncStatus}
@@ -556,20 +605,24 @@ export default function App() {
             </div>
           </div>
         ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 [grid-auto-flow:dense]">
             <AnimatePresence mode="popLayout">
-              {filteredBookmarks.map((bookmark) => (
-                <BookmarkCard
-                  key={bookmark.id}
-                  bookmark={bookmark}
-                  category={categories.find((c) => c.id === bookmark.categoryId)}
-                  onOpenDetail={(bm) => setDetailBookmark(bm)}
-                  onToggleFavorite={handleToggleFavorite}
-                  onToggleStatus={handleToggleStatus}
-                  onDelete={handleDeleteBookmark}
-                  onSelectTag={(t) => setSelectedTag(t)}
-                />
-              ))}
+              {filteredBookmarks.map((bookmark) => {
+                const isBento = bookmark.isFavorite || (bookmark.githubStats?.stars || 0) >= 500;
+                return (
+                  <BookmarkCard
+                    key={bookmark.id}
+                    bookmark={bookmark}
+                    category={categories.find((c) => c.id === bookmark.categoryId)}
+                    onOpenDetail={(bm) => setDetailBookmark(bm)}
+                    onToggleFavorite={handleToggleFavorite}
+                    onToggleStatus={handleToggleStatus}
+                    onDelete={handleDeleteBookmark}
+                    onSelectTag={(t) => setSelectedTag(t)}
+                    isBento={isBento}
+                  />
+                );
+              })}
             </AnimatePresence>
           </div>
         ) : (
@@ -610,6 +663,12 @@ export default function App() {
         apiProvider={apiProvider}
         customBaseUrl={customBaseUrl}
         customModel={customModel}
+        onNavigateNext={handleNavigateNext}
+        onNavigatePrev={handleNavigatePrev}
+        hasNext={currentDetailIndex >= 0 && currentDetailIndex < filteredBookmarks.length - 1}
+        hasPrev={currentDetailIndex > 0}
+        currentIndex={currentDetailIndex}
+        totalCount={filteredBookmarks.length}
       />
 
       {/* Custom Category Modal */}
@@ -641,6 +700,24 @@ export default function App() {
         supabaseSyncStatus={supabaseSyncStatus}
         onSaveSupabaseConfig={handleSaveSupabaseConfig}
         onManualSyncToCloud={handleManualSyncToCloud}
+      />
+
+      {/* Global Command Palette (Cmd+K / Ctrl+K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        bookmarks={bookmarks}
+        categories={categories}
+        onSelectBookmark={(bm) => setDetailBookmark(bm)}
+        onSelectCategory={(catId) => setSelectedCategory(catId)}
+        onOpenAddModal={() => setIsAddModalOpen(true)}
+        onOpenSettings={() => setIsSettingsModalOpen(true)}
+        onToggleViewMode={() => setViewMode((prev) => (prev === 'grid' ? 'table' : 'grid'))}
+        onToggleFavoriteFilter={() => setFilterFavorite((prev) => !prev)}
+        onToggleUnreadFilter={() => setFilterUnread((prev) => !prev)}
+        viewMode={viewMode}
+        filterFavorite={filterFavorite}
+        filterUnread={filterUnread}
       />
 
       {/* Global Toast Notification */}

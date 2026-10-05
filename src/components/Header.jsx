@@ -8,6 +8,7 @@ import {
   Settings,
   X,
   Cloud,
+  Command,
 } from 'lucide-react';
 
 export default function Header({
@@ -17,6 +18,7 @@ export default function Header({
   setViewMode,
   onOpenAddModal,
   onOpenSettings,
+  onOpenCommandPalette,
   totalCount,
   filteredCount,
   supabaseSyncStatus = 'OFFLINE',
@@ -38,8 +40,13 @@ export default function Header({
                 <span className="font-bold text-base sm:text-lg bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent tracking-tight">
                   LinkVault AI
                 </span>
-                <span className="hidden xs:inline-block px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-[11px] font-semibold tracking-wide bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full">
-                  AI 智能情報庫
+                <span className="hidden xs:inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-[11px] font-semibold tracking-wide bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-full">
+                  <span>AI 智能情報庫</span>
+                  {totalCount > 0 && (
+                    <span className="font-mono text-indigo-300">
+                      ({filteredCount !== totalCount ? `${filteredCount}/${totalCount}` : totalCount})
+                    </span>
+                  )}
                 </span>
               </div>
               <p className="text-xs text-slate-400 hidden lg:block">
@@ -48,30 +55,50 @@ export default function Header({
             </div>
           </div>
 
-          {/* Search Bar - Hidden on mobile (<sm) to avoid crowding, since FilterBar has a full search */}
+          {/* Search Bar & Command Palette Trigger */}
           <div className="hidden sm:block flex-1 max-w-md mx-2">
-            <div className="relative">
+            <div className="relative flex items-center">
               <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
               <input
                 type="text"
-                placeholder="快速搜尋網站、亮點、標籤... (/ 快捷鍵)"
+                placeholder="快速搜尋網站、亮點、標籤..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-9 py-2 text-xs sm:text-sm bg-slate-900/90 border border-slate-700/80 focus:border-indigo-500 rounded-lg outline-none transition-all placeholder:text-slate-500 text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                className="w-full pl-10 pr-20 py-2 text-xs sm:text-sm bg-slate-900/90 border border-slate-700/80 focus:border-indigo-500 rounded-lg outline-none transition-all placeholder:text-slate-500 text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
               />
-              {searchQuery && (
+              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                {searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="text-slate-400 hover:text-slate-200 p-0.5 rounded-full hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                ) : null}
                 <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 p-0.5 rounded-full hover:bg-slate-800 transition-colors"
+                  type="button"
+                  onClick={onOpenCommandPalette}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-750 border border-slate-700 text-[10px] font-mono text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                  title="開啟指令調色盤 (Cmd+K / Ctrl+K)"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <Command className="w-3 h-3 text-indigo-400" />
+                  <span>K</span>
                 </button>
-              )}
+              </div>
             </div>
           </div>
 
           {/* Actions & View Controls */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Quick Command Palette Button for Mobile */}
+            <button
+              onClick={onOpenCommandPalette}
+              className="flex sm:hidden items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900/90 hover:bg-slate-800 text-slate-300 border border-slate-700/80 text-xs font-medium transition-all shadow-xs cursor-pointer"
+              title="指令調色盤 (⌘K)"
+            >
+              <Command className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="text-[11px]">指令</span>
+            </button>
             {/* View Switcher (Grid / Table) */}
             <div className="hidden md:flex items-center bg-slate-900/90 p-1 rounded-lg border border-slate-800">
               <button
