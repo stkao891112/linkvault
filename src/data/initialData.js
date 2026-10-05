@@ -30,6 +30,7 @@ export const INITIAL_BOOKMARKS = [
     },
     tags: ['React', 'TailwindCSS', 'RadixUI', 'UI設計'],
     isFavorite: true,
+    isBento: true,
     status: 'read',
     createdAt: '2026-03-28T10:15:00.000Z',
     githubStats: {
@@ -62,6 +63,7 @@ export const INITIAL_BOOKMARKS = [
     },
     tags: ['Icons', 'SVG', '設計素材', 'UI'],
     isFavorite: true,
+    isBento: false,
     status: 'read',
     createdAt: '2026-03-29T14:30:00.000Z',
     githubStats: {
@@ -94,6 +96,7 @@ export const INITIAL_BOOKMARKS = [
     },
     tags: ['Figma', '設計靈感', 'UI套件', '3D素材'],
     isFavorite: false,
+    isBento: false,
     status: 'unread',
     createdAt: '2026-04-01T08:20:00.000Z'
   },
@@ -119,6 +122,7 @@ export const INITIAL_BOOKMARKS = [
     },
     tags: ['AI模型', '本地部署', 'LLM', '工具'],
     isFavorite: true,
+    isBento: true,
     status: 'read',
     createdAt: '2026-04-02T16:45:00.000Z',
     githubStats: {
@@ -151,6 +155,7 @@ export const INITIAL_BOOKMARKS = [
     },
     tags: ['動畫特效', 'FramerMotion', 'LandingPage', '前端'],
     isFavorite: false,
+    isBento: false,
     status: 'unread',
     createdAt: '2026-04-03T11:10:00.000Z'
   },
@@ -176,6 +181,7 @@ export const INITIAL_BOOKMARKS = [
     },
     tags: ['Python', 'Rust', '開發工具', '效能優化'],
     isFavorite: true,
+    isBento: true,
     status: 'read',
     createdAt: '2026-04-04T09:00:00.000Z',
     githubStats: {

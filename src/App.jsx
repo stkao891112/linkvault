@@ -523,21 +523,46 @@ export default function App() {
   }, [bookmarks]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#020617] text-slate-100 flex flex-col font-sans relative overflow-x-hidden selection:bg-indigo-500/30 selection:text-indigo-200">
       
-      {/* Top Fixed Header with Realtime Sync Status Indicator */}
-      <Header
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
-        onOpenAddModal={() => setIsAddModalOpen(true)}
-        onOpenSettings={() => setIsSettingsModalOpen(true)}
-        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
-        totalCount={bookmarks.length}
-        filteredCount={filteredBookmarks.length}
-        supabaseSyncStatus={supabaseSyncStatus}
+      {/* 1. Tech Matrix Grid Background Canvas */}
+      <div 
+        className="fixed inset-0 pointer-events-none bg-[radial-gradient(#334155_1.2px,transparent_1.2px)] [background-size:28px_28px] opacity-40 z-0" 
+        aria-hidden="true"
       />
+
+      {/* 2. Dynamic Ambient Aurora Orbs */}
+      {/* Primary Top Aurora Orb */}
+      <div 
+        className="fixed -top-40 left-1/2 -translate-x-1/2 w-[760px] h-[380px] bg-gradient-to-r from-indigo-500/25 via-purple-500/20 to-cyan-500/25 rounded-full blur-[130px] pointer-events-none z-0 animate-float-slow" 
+        aria-hidden="true"
+      />
+      {/* Right Neon Cyan / Violet Glow Orb */}
+      <div 
+        className="fixed top-1/4 -right-48 w-[520px] h-[520px] bg-gradient-to-bl from-cyan-500/15 via-blue-600/15 to-violet-600/15 rounded-full blur-[140px] pointer-events-none z-0 animate-float-reverse" 
+        aria-hidden="true"
+      />
+      {/* Bottom Left Deep Purple / Pink Nebula Orb */}
+      <div 
+        className="fixed -bottom-40 -left-48 w-[600px] h-[600px] bg-gradient-to-tr from-purple-600/15 via-pink-500/10 to-indigo-600/15 rounded-full blur-[140px] pointer-events-none z-0 animate-float-slow" 
+        aria-hidden="true"
+      />
+
+      {/* Main App Content Stack */}
+      <div className="relative z-10 flex flex-col flex-1">
+        {/* Top Fixed Header with Realtime Sync Status Indicator */}
+        <Header
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          onOpenAddModal={() => setIsAddModalOpen(true)}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          totalCount={bookmarks.length}
+          filteredCount={filteredBookmarks.length}
+          supabaseSyncStatus={supabaseSyncStatus}
+        />
 
       {/* Main Single-Column Fluid Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
@@ -607,8 +632,10 @@ export default function App() {
         ) : viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5 [grid-auto-flow:dense]">
             <AnimatePresence mode="popLayout">
-              {filteredBookmarks.map((bookmark) => {
-                const isBento = bookmark.isFavorite || (bookmark.githubStats?.stars || 0) >= 500;
+              {filteredBookmarks.map((bookmark, index) => {
+                const isBento = bookmark.isBento !== undefined
+                  ? bookmark.isBento
+                  : (bookmark.id === 'bm-1' || bookmark.id === 'bm-4' || (bookmark.isFavorite && index % 2 === 0));
                 return (
                   <BookmarkCard
                     key={bookmark.id}
@@ -728,6 +755,7 @@ export default function App() {
         </div>
       )}
 
+      </div>
     </div>
   );
 }

@@ -127,20 +127,24 @@ export default function QuickAddHero({
   };
 
   return (
-    <section className="relative rounded-2xl sm:rounded-3xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-xl p-4 sm:p-8 shadow-2xl shadow-black/40 overflow-hidden mb-6 sm:mb-8">
+    <section className="relative rounded-2xl sm:rounded-3xl border border-slate-700/80 bg-slate-900/70 backdrop-blur-2xl p-4 sm:p-8 shadow-[0_0_50px_-12px_rgba(99,102,241,0.25)] overflow-hidden mb-6 sm:mb-8">
       {/* Background ambient glow effect */}
-      <div className="absolute -top-24 -left-24 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-24 -right-24 w-72 h-72 bg-violet-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-24 -left-24 w-80 h-80 bg-gradient-to-br from-indigo-500/20 via-purple-500/15 to-transparent rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-24 -right-24 w-80 h-80 bg-gradient-to-tl from-cyan-500/20 via-blue-500/15 to-transparent rounded-full blur-3xl pointer-events-none" />
 
       <div className="relative z-10 max-w-3xl mx-auto text-center space-y-3 sm:space-y-4 mb-4 sm:mb-6">
-        <div className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[11px] sm:text-xs font-semibold">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/90 border border-indigo-500/40 shadow-[0_0_20px_rgba(99,102,241,0.35)] text-xs font-semibold text-indigo-300 backdrop-blur-xl animate-pulse">
           <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-          <span>AI 智慧精摘與靈感萃取</span>
+          <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-200 to-cyan-300">
+            ✨ v2.0 Silicon Valley Edition
+          </span>
+          <span className="w-1 h-1 rounded-full bg-indigo-400" />
+          <span className="text-slate-400 font-medium">AI 智慧精摘引擎</span>
         </div>
-        <h2 className="text-xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent leading-tight">
+        <h2 className="text-2xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 via-purple-200 to-cyan-300 bg-clip-text text-transparent drop-shadow-[0_10px_25px_rgba(99,102,241,0.25)] leading-tight">
           看到好網站？貼上網址，AI 自動提煉
         </h2>
-        <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto leading-relaxed">
+        <p className="text-xs sm:text-base text-slate-300/80 max-w-xl mx-auto leading-relaxed">
           告別雜亂無章的書籤欄。輸入 GitHub 專案或素材網站，即刻萃取核心價值、亮點與分類標籤。
         </p>
       </div>
@@ -149,7 +153,7 @@ export default function QuickAddHero({
       <form onSubmit={handleStartAnalysis} className="relative z-10 max-w-3xl mx-auto space-y-3">
         {/* Outer Glow & Border Beam Container */}
         <div className={`relative p-[1.5px] rounded-2xl transition-all duration-300 ${
-          isAnalyzing ? 'shadow-2xl shadow-indigo-500/25' : ''
+          isAnalyzing ? 'shadow-2xl shadow-indigo-500/30' : ''
         }`}>
           {/* Neon Border Beam & Pulse Shimmer when isAnalyzing */}
           {isAnalyzing && (
@@ -177,10 +181,10 @@ export default function QuickAddHero({
           )}
 
           {/* Actual Input Row Container */}
-          <div className={`relative z-10 flex flex-col sm:flex-row items-stretch gap-2.5 p-2 rounded-2xl bg-slate-950/95 border transition-all shadow-xl ${
+          <div className={`relative z-10 flex flex-col sm:flex-row items-stretch gap-2.5 p-2 rounded-2xl bg-slate-950/90 border transition-all duration-300 shadow-xl ${
             isAnalyzing
-              ? 'border-indigo-500/60 ring-2 ring-indigo-500/30'
-              : 'border-slate-700/80 focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20'
+              ? 'border-indigo-500/80 ring-2 ring-indigo-500/40 shadow-[0_0_40px_rgba(99,102,241,0.4)]'
+              : 'border-slate-700/80 hover:border-slate-600 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-500/30 focus-within:shadow-[0_0_30px_rgba(99,102,241,0.3)]'
           }`}>
             {/* Shimmer sweep scanner bar during analysis */}
             {isAnalyzing && (
