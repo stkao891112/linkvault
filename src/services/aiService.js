@@ -75,7 +75,14 @@ export async function fetchGitHubRepoDetails(owner, repo) {
  * Comprehensive Smart Local AI Analyzer
  * Generates structured, high-value insights based on URL semantics, domain heuristics, and user input notes.
  */
-export async function analyzeUrlWithAI({ url, userNote = '', customApiKey = '', apiProvider = 'mock' }) {
+export async function analyzeUrlWithAI({
+  url,
+  userNote = '',
+  customApiKey = '',
+  apiProvider = 'mock',
+  customBaseUrl = '',
+  customModel = ''
+}) {
   const cleanUrl = url.trim().startsWith('http') ? url.trim() : `https://${url.trim()}`;
   const domain = getDomain(cleanUrl);
   const ghInfo = parseGitHubUrl(cleanUrl);
@@ -85,8 +92,8 @@ export async function analyzeUrlWithAI({ url, userNote = '', customApiKey = '', 
     ghDetails = await fetchGitHubRepoDetails(ghInfo.owner, ghInfo.repo);
   }
 
-  // If user provided a real LLM API Key (OpenAI / OpenRouter compatible)
-  if (customApiKey && apiProvider !== 'mock') {
+  // If user provided a real LLM API Key or local custom endpoint
+  if ((customApiKey || apiProvider === 'custom') && apiProvider !== 'mock') {
     try {
       const result = await callExternalLLM({
         url: cleanUrl,
@@ -96,6 +103,8 @@ export async function analyzeUrlWithAI({ url, userNote = '', customApiKey = '', 
         ghDetails,
         apiKey: customApiKey,
         provider: apiProvider,
+        customBaseUrl,
+        customModel,
       });
       if (result) return result;
     } catch (e) {
@@ -345,9 +354,9 @@ function generateSmartHeuristicAnalysis({ url, domain, userNote, ghInfo, ghDetai
 }
 
 /**
- * Optional external LLM caller for users who want to supply an API Key
+ * Optional external LLM caller for users who want to supply an API Key or custom endpoint
  */
-async function callExternalLLM({ url, domain, userNote, ghInfo, ghDetails, apiKey, provider }) {
+async function callExternalLLM({ url, domain, userNote, ghInfo, ghDetails, apiKey, provider, customBaseUrl, customModel }) {
   const prompt = `你是一個專業的技術與設計網站情報分析師。使用者提供了一個網址：${url}
 網域：${domain}
 使用者補充備註：${userNote || '無'}
@@ -362,41 +371,79 @@ ${ghDetails ? `GitHub 資訊：${ghDetails.description}, Stars: ${ghDetails.star
   "suggestedTags": ["標籤1", "標籤2", "標籤3"]
 }`;
 
-  // Default to OpenAI / OpenRouter style endpoint
-  let endpoint = 'https://api.openai.com/v1/chat/completions';
-  let model = 'gpt-4o-mini';
+  let parsed = null;
 
-  if (provider === 'openrouter') {
-    endpoint = 'https://openrouter.ai/api/v1/chat/completions';
-    model = 'anthropic/claude-3.5-haiku';
-  } else if (provider === 'groq') {
-    endpoint = 'https://api.groq.com/openai/v1/chat/completions';
-    model = 'llama-3.3-70b-versatile';
+  // 1. Google Gemini Provider
+  if (provider === 'gemini') {
+    const model = customModel?.trim() || 'gemini-1.5-flash';
+    let endpoint = customBaseUrl?.trim()
+      ? `${customBaseUrl.trim().replace(/\/$/, '')}/models/${model}:generateContent?key=${apiKey?.trim()}`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey?.trim()}`;
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.3,
+          responseMimeType: 'application/json',
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gemini API returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Invalid JSON returned by Gemini');
+    parsed = JSON.parse(jsonMatch[0]);
   }
+  // 2. OpenAI-compatible Providers (OpenAI, Groq, OpenRouter, Custom / Local Ollama / LM Studio)
+  else {
+    let endpoint = 'https://api.openai.com/v1/chat/completions';
+    let model = customModel?.trim() || 'gpt-4o-mini';
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-    }),
-  });
+    if (provider === 'openrouter') {
+      endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+      model = customModel?.trim() || 'anthropic/claude-3.5-haiku';
+    } else if (provider === 'groq') {
+      endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+      model = customModel?.trim() || 'llama-3.3-70b-versatile';
+    } else if (provider === 'custom') {
+      let base = (customBaseUrl || 'http://localhost:11434/v1').trim().replace(/\/$/, '');
+      endpoint = base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
+      model = customModel?.trim() || 'llama3';
+    }
 
-  if (!response.ok) {
-    throw new Error(`LLM API returned ${response.status}`);
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiKey && apiKey.trim()) {
+      headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`LLM API returned ${response.status}`);
+    }
+
+    const data = await response.json();
+    const rawText = data.choices?.[0]?.message?.content || '';
+    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Invalid JSON returned by LLM');
+    parsed = JSON.parse(jsonMatch[0]);
   }
-
-  const data = await response.json();
-  const rawText = data.choices?.[0]?.message?.content || '';
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error('Invalid JSON returned by LLM');
-
-  const parsed = JSON.parse(jsonMatch[0]);
 
   return {
     title: parsed.title || `${domain} - AI 分析網站`,

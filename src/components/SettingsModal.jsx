@@ -23,11 +23,17 @@ export default function SettingsModal({
   setCustomApiKey,
   apiProvider,
   setApiProvider,
+  customBaseUrl = '',
+  setCustomBaseUrl = () => {},
+  customModel = '',
+  setCustomModel = () => {},
 }) {
   if (!isOpen) return null;
 
   const [tempApiKey, setTempApiKey] = useState(customApiKey || '');
   const [tempProvider, setTempProvider] = useState(apiProvider || 'mock');
+  const [tempBaseUrl, setTempBaseUrl] = useState(customBaseUrl || '');
+  const [tempModel, setTempModel] = useState(customModel || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importError, setImportError] = useState('');
 
@@ -35,6 +41,8 @@ export default function SettingsModal({
     e.preventDefault();
     setCustomApiKey(tempApiKey.trim());
     setApiProvider(tempProvider);
+    setCustomBaseUrl(tempBaseUrl.trim());
+    setCustomModel(tempModel.trim());
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
   };
@@ -132,26 +140,90 @@ export default function SettingsModal({
                   className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none text-slate-200 focus:ring-2 focus:ring-indigo-500/20"
                 >
                   <option value="mock">內建本地智慧分析引擎 (無需 API Key，零延遲)</option>
+                  <option value="gemini">Google Gemini (Gemini 1.5 Flash / 2.0)</option>
+                  <option value="custom">自訂 Base URL (本地 Ollama / LM Studio / 自建代理)</option>
                   <option value="openai">OpenAI (GPT-4o-mini)</option>
-                  <option value="openrouter">OpenRouter (Claude 3.5 Haiku / Llama 3)</option>
                   <option value="groq">Groq (Llama 3.3 70B 極速推論)</option>
+                  <option value="openrouter">OpenRouter (Claude 3.5 Haiku / Llama 3)</option>
                 </select>
               </div>
 
-              {tempProvider !== 'mock' && (
+              {/* Custom Base URL & Model for local/proxy setup */}
+              {tempProvider === 'custom' && (
+                <div className="space-y-2 p-3 rounded-lg bg-slate-900 border border-slate-800">
+                  <div>
+                    <label className="block font-medium text-indigo-400 mb-1">
+                      API 基礎網址 (Base URL / 本地端點)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="http://localhost:11434/v1 或 http://localhost:1234/v1 或 https://..."
+                      value={tempBaseUrl}
+                      onChange={(e) => setTempBaseUrl(e.target.value)}
+                      className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      本地 Ollama 請填：<code className="text-indigo-300">http://localhost:11434/v1</code>；LM Studio 請填：<code className="text-indigo-300">http://localhost:1234/v1</code>
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block font-medium text-slate-400 mb-1">
+                      模型名稱 (Model Name)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="例：llama3, deepseek-r1, qwen2.5, mistral"
+                      value={tempModel}
+                      onChange={(e) => setTempModel(e.target.value)}
+                      className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Model selection for Gemini */}
+              {tempProvider === 'gemini' && (
                 <div>
                   <label className="block font-medium text-slate-400 mb-1">
-                    API 金鑰 (API Key)
+                    Gemini 模型版本 (選填)
                   </label>
                   <input
+                    type="text"
+                    placeholder="gemini-1.5-flash (預設) 或 gemini-2.0-flash"
+                    value={tempModel}
+                    onChange={(e) => setTempModel(e.target.value)}
+                    className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                  />
+                </div>
+              )}
+
+              {/* API Key Input (Optional for custom local, Required for cloud providers) */}
+              {tempProvider !== 'mock' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-medium text-slate-400">
+                      API 金鑰 (API Key)
+                    </label>
+                    {tempProvider === 'custom' && (
+                      <span className="text-[11px] text-slate-500">本地 Ollama / LM Studio 可留空</span>
+                    )}
+                  </div>
+                  <input
                     type="password"
-                    placeholder="sk-..."
+                    placeholder={
+                      tempProvider === 'gemini'
+                        ? 'AIzaSy...'
+                        : tempProvider === 'custom'
+                        ? '選填，本地模型留空即可'
+                        : 'sk-...'
+                    }
                     value={tempApiKey}
                     onChange={(e) => setTempApiKey(e.target.value)}
                     className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
-                    金鑰僅保存在您本機的瀏覽器 LocalStorage 中，絕不傳送到任何外部伺服器。
+                    金鑰僅保存在本機瀏覽器 LocalStorage 中，絕不傳送到外部伺服器。
                   </p>
                 </div>
               )}

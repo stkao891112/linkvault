@@ -75,6 +75,22 @@ export default function App() {
     }
   });
 
+  const [customBaseUrl, setCustomBaseUrl] = useState(() => {
+    try {
+      return localStorage.getItem('linkvault_custom_baseurl') || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const [customModel, setCustomModel] = useState(() => {
+    try {
+      return localStorage.getItem('linkvault_custom_model') || '';
+    } catch {
+      return '';
+    }
+  });
+
   // 5. Toast Feedback State
   const [toast, setToast] = useState(null);
 
@@ -114,10 +130,12 @@ export default function App() {
     try {
       localStorage.setItem('linkvault_custom_apikey', customApiKey);
       localStorage.setItem('linkvault_api_provider', apiProvider);
+      localStorage.setItem('linkvault_custom_baseurl', customBaseUrl);
+      localStorage.setItem('linkvault_custom_model', customModel);
     } catch (e) {
       console.warn('LocalStorage save failed:', e);
     }
-  }, [customApiKey, apiProvider]);
+  }, [customApiKey, apiProvider, customBaseUrl, customModel]);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -312,6 +330,8 @@ export default function App() {
           onSaveBookmark={handleSaveBookmark}
           customApiKey={customApiKey}
           apiProvider={apiProvider}
+          customBaseUrl={customBaseUrl}
+          customModel={customModel}
         />
 
         {/* 2. Fluid Capsule Filter Bar & Search */}
@@ -405,6 +425,8 @@ export default function App() {
         onSaveBookmark={handleSaveBookmark}
         customApiKey={customApiKey}
         apiProvider={apiProvider}
+        customBaseUrl={customBaseUrl}
+        customModel={customModel}
       />
 
       {/* Bookmark Detail Drawer Modal */}
@@ -417,6 +439,8 @@ export default function App() {
         onDeleteBookmark={handleDeleteBookmark}
         customApiKey={customApiKey}
         apiProvider={apiProvider}
+        customBaseUrl={customBaseUrl}
+        customModel={customModel}
       />
 
       {/* Custom Category Modal */}
@@ -440,6 +464,10 @@ export default function App() {
         setCustomApiKey={setCustomApiKey}
         apiProvider={apiProvider}
         setApiProvider={setApiProvider}
+        customBaseUrl={customBaseUrl}
+        setCustomBaseUrl={setCustomBaseUrl}
+        customModel={customModel}
+        setCustomModel={setCustomModel}
       />
 
       {/* Global Toast Notification */}

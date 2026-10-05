@@ -29,6 +29,8 @@ export default function AddBookmarkModal({
   onSaveBookmark,
   customApiKey,
   apiProvider,
+  customBaseUrl = '',
+  customModel = '',
 }) {
   const [url, setUrl] = useState('');
   const [userNote, setUserNote] = useState('');
@@ -65,6 +67,8 @@ export default function AddBookmarkModal({
         userNote: userNote.trim(),
         customApiKey,
         apiProvider,
+        customBaseUrl,
+        customModel,
       });
 
       await new Promise((r) => setTimeout(r, 500));

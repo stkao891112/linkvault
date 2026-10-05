@@ -27,6 +27,8 @@ export default function BookmarkDetailModal({
   onDeleteBookmark,
   customApiKey,
   apiProvider,
+  customBaseUrl = '',
+  customModel = '',
 }) {
   if (!isOpen || !bookmark) return null;
 
@@ -92,6 +94,8 @@ export default function BookmarkDetailModal({
         userNote,
         customApiKey,
         apiProvider,
+        customBaseUrl,
+        customModel,
       });
 
       const updated = {
