@@ -69,9 +69,9 @@ export default function App() {
 
   const [apiProvider, setApiProvider] = useState(() => {
     try {
-      return localStorage.getItem('linkvault_api_provider') || localStorage.getItem('sitevault_api_provider') || 'mock';
+      return localStorage.getItem('linkvault_api_provider') || localStorage.getItem('sitevault_api_provider') || 'gemini';
     } catch {
-      return 'mock';
+      return 'gemini';
     }
   });
 

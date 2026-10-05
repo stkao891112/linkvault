@@ -79,7 +79,7 @@ export async function analyzeUrlWithAI({
   url,
   userNote = '',
   customApiKey = '',
-  apiProvider = 'mock',
+  apiProvider = 'gemini',
   customBaseUrl = '',
   customModel = ''
 }) {
@@ -92,7 +92,7 @@ export async function analyzeUrlWithAI({
     ghDetails = await fetchGitHubRepoDetails(ghInfo.owner, ghInfo.repo);
   }
 
-  // If user provided a real LLM API Key or local custom endpoint
+  // 1. If user provided a real LLM API Key or local custom endpoint
   if ((customApiKey || apiProvider === 'custom') && apiProvider !== 'mock') {
     try {
       const result = await callExternalLLM({
@@ -108,11 +108,28 @@ export async function analyzeUrlWithAI({
       });
       if (result) return result;
     } catch (e) {
-      console.warn('External LLM call failed, falling back to smart local AI extractor:', e);
+      console.warn('External LLM call failed, falling back to serverless or smart local AI extractor:', e);
     }
   }
 
-  // Built-in Smart Local AI Extractor
+  // 2. Default cloud execution: If no custom key is provided and provider is gemini,
+  // call Vercel Serverless API (/api/analyze) powered by Vercel GEMINI_API_KEY
+  if (!customApiKey && (apiProvider === 'gemini' || !apiProvider)) {
+    try {
+      const serverResult = await callServerlessAnalyze({
+        url: cleanUrl,
+        domain,
+        userNote,
+        ghInfo,
+        ghDetails,
+      });
+      if (serverResult) return serverResult;
+    } catch (e) {
+      console.warn('Vercel Serverless analyze failed or unavailable, falling back to smart local AI extractor:', e);
+    }
+  }
+
+  // 3. Built-in Smart Local AI Extractor (graceful offline / non-Vercel fallback)
   return generateSmartHeuristicAnalysis({
     url: cleanUrl,
     domain,
@@ -120,6 +137,72 @@ export async function analyzeUrlWithAI({
     ghInfo,
     ghDetails,
   });
+}
+
+/**
+ * Call Vercel Serverless API (/api/analyze)
+ * Executes Gemini analysis in the cloud using Vercel's GEMINI_API_KEY environment variable.
+ */
+export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghDetails }) {
+  const response = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url,
+      domain,
+      userNote,
+      ghDetails,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`Serverless API returned status ${response.status}: ${errorText.slice(0, 120)}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Serverless API returned non-JSON response (possibly SPA fallback)');
+  }
+
+  const data = await response.json();
+  const parsed = data.data || data;
+
+  if (!parsed || !parsed.title) {
+    throw new Error('Invalid JSON payload returned by /api/analyze');
+  }
+
+  let categoryId = 'cat-tools';
+  if (ghInfo) {
+    categoryId = 'cat-github';
+  }
+
+  return {
+    title: parsed.title || `${domain} - AI 分析網站`,
+    domain,
+    favicon: getFaviconUrl(url),
+    categoryId,
+    aiSummary: {
+      oneLiner: parsed.oneLiner || '',
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
+      useCases: Array.isArray(parsed.useCases) ? parsed.useCases : [],
+      suggestedCategory: categoryId,
+      suggestedTags: Array.isArray(parsed.suggestedTags) ? parsed.suggestedTags : ['AI整理'],
+    },
+    tags: Array.isArray(parsed.suggestedTags) && parsed.suggestedTags.length > 0 ? parsed.suggestedTags : ['AI整理'],
+    githubStats: ghDetails
+      ? {
+          owner: ghInfo.owner,
+          repo: ghInfo.repo,
+          stars: ghDetails.stars,
+          forks: ghDetails.forks,
+          language: ghDetails.language,
+          topics: ghDetails.topics,
+        }
+      : undefined,
+  };
 }
 
 /**

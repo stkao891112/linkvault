@@ -31,7 +31,7 @@ export default function SettingsModal({
   if (!isOpen) return null;
 
   const [tempApiKey, setTempApiKey] = useState(customApiKey || '');
-  const [tempProvider, setTempProvider] = useState(apiProvider || 'mock');
+  const [tempProvider, setTempProvider] = useState(apiProvider || 'gemini');
   const [tempBaseUrl, setTempBaseUrl] = useState(customBaseUrl || '');
   const [tempModel, setTempModel] = useState(customModel || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -126,7 +126,7 @@ export default function SettingsModal({
             </div>
 
             <p className="text-slate-400 leading-relaxed">
-              系統內建「在地智慧語意分析引擎」，能即時爬梳 GitHub 活躍度、網域分類與關鍵重點，無需提供任何金鑰即可完美運行。若您希望調用真實的大語言模型，可在此填寫您的 API Key。
+              系統支援 Vercel 雲端伺服器代跑與在地智慧語意分析引擎。預設由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰。若您希望調用個人私有金鑰或其他模型，亦可在此填寫您的 API Key。
             </p>
 
             <form onSubmit={handleSaveApiSettings} className="space-y-3 pt-1">
@@ -139,8 +139,8 @@ export default function SettingsModal({
                   onChange={(e) => setTempProvider(e.target.value)}
                   className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none text-slate-200 focus:ring-2 focus:ring-indigo-500/20"
                 >
-                  <option value="mock">內建本地智慧分析引擎 (無需 API Key，零延遲)</option>
-                  <option value="gemini">Google Gemini (Gemini 1.5 Flash / 2.0)</option>
+                  <option value="gemini">Google Gemini (Vercel 伺服器代跑 - 由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰)</option>
+                  <option value="mock">內建本地智慧分析引擎 (無需 API Key，純本機零延遲)</option>
                   <option value="custom">自訂 Base URL (本地 Ollama / LM Studio / 自建代理)</option>
                   <option value="openai">OpenAI (GPT-4o-mini)</option>
                   <option value="groq">Groq (Llama 3.3 70B 極速推論)</option>
@@ -198,13 +198,16 @@ export default function SettingsModal({
                 </div>
               )}
 
-              {/* API Key Input (Optional for custom local, Required for cloud providers) */}
+              {/* API Key Input (Optional for custom local & Gemini Vercel cloud, Required for other cloud providers) */}
               {tempProvider !== 'mock' && (
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="font-medium text-slate-400">
                       API 金鑰 (API Key)
                     </label>
+                    {tempProvider === 'gemini' && (
+                      <span className="text-[11px] text-emerald-400">由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰</span>
+                    )}
                     {tempProvider === 'custom' && (
                       <span className="text-[11px] text-slate-500">本地 Ollama / LM Studio 可留空</span>
                     )}
@@ -213,7 +216,7 @@ export default function SettingsModal({
                     type="password"
                     placeholder={
                       tempProvider === 'gemini'
-                        ? 'AIzaSy...'
+                        ? '選填：由 Vercel 伺服器代跑（或在此輸入個人自訂 AIzaSy...）'
                         : tempProvider === 'custom'
                         ? '選填，本地模型留空即可'
                         : 'sk-...'
@@ -223,7 +226,9 @@ export default function SettingsModal({
                     className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">
-                    金鑰僅保存在本機瀏覽器 LocalStorage 中，絕不傳送到外部伺服器。
+                    {tempProvider === 'gemini'
+                      ? '預設由 Vercel GEMINI_API_KEY 驅動，跨裝置免輸入金鑰；若填寫個人金鑰則優先使用個人配額。'
+                      : '金鑰僅保存在本機瀏覽器 LocalStorage 中，絕不傳送到外部伺服器。'}
                   </p>
                 </div>
               )}
