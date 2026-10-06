@@ -8,7 +8,13 @@ import {
   MessageSquare,
   Lightbulb,
   CheckCircle2,
-  Camera
+  Camera,
+  Plus,
+  Trash2,
+  X,
+  RotateCw,
+  Edit3,
+  Tag
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { analyzeUrlWithAI } from '../services/aiService';
@@ -37,6 +43,7 @@ export default function QuickAddHero({
   const [analysisStep, setAnalysisStep] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [heroNewTag, setHeroNewTag] = useState('');
   const fileInputRef = useRef(null);
 
   const handleApplyPreset = (preset) => {
@@ -110,7 +117,20 @@ export default function QuickAddHero({
       await new Promise((r) => setTimeout(r, 350));
       setAnalysisStep('生成分類建議與標籤...');
 
-      setAnalysisResult(result);
+      const normalizedResult = {
+        ...result,
+        title: result.title || url.trim(),
+        tags: Array.isArray(result.tags) && result.tags.length > 0 ? result.tags : (result.aiSummary?.suggestedTags || ['常用收藏']),
+        aiSummary: {
+          oneLiner: result.aiSummary?.oneLiner || '',
+          highlights: Array.isArray(result.aiSummary?.highlights) ? result.aiSummary.highlights : ['手動收錄之優質資源'],
+          useCases: Array.isArray(result.aiSummary?.useCases) ? result.aiSummary.useCases : ['日常開發與設計參考'],
+          suggestedCategory: result.categoryId || result.aiSummary?.suggestedCategory || 'cat-tools',
+          suggestedTags: Array.isArray(result.tags) && result.tags.length > 0 ? result.tags : (result.aiSummary?.suggestedTags || ['常用收藏']),
+        },
+      };
+
+      setAnalysisResult(normalizedResult);
       if (selectedCategory === 'auto' && result.categoryId) {
         setSelectedCategory(result.categoryId);
       }
@@ -123,6 +143,145 @@ export default function QuickAddHero({
     }
   };
 
+  const handleUpdateTitle = (val) => {
+    setAnalysisResult((prev) => (prev ? { ...prev, title: val } : null));
+  };
+
+  const handleUpdateOneLiner = (val) => {
+    setAnalysisResult((prev) =>
+      prev
+        ? {
+            ...prev,
+            aiSummary: {
+              ...(prev.aiSummary || {}),
+              oneLiner: val,
+            },
+          }
+        : null
+    );
+  };
+
+  const handleUpdateHighlight = (index, val) => {
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const nextH = [...(prev.aiSummary?.highlights || [])];
+      nextH[index] = val;
+      return {
+        ...prev,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          highlights: nextH,
+        },
+      };
+    });
+  };
+
+  const handleRemoveHighlight = (index) => {
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const nextH = (prev.aiSummary?.highlights || []).filter((_, i) => i !== index);
+      return {
+        ...prev,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          highlights: nextH,
+        },
+      };
+    });
+  };
+
+  const handleAddHighlight = () => {
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const nextH = [...(prev.aiSummary?.highlights || []), ''];
+      return {
+        ...prev,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          highlights: nextH,
+        },
+      };
+    });
+  };
+
+  const handleUpdateUseCase = (index, val) => {
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const nextU = [...(prev.aiSummary?.useCases || [])];
+      nextU[index] = val;
+      return {
+        ...prev,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          useCases: nextU,
+        },
+      };
+    });
+  };
+
+  const handleRemoveUseCase = (index) => {
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const nextU = (prev.aiSummary?.useCases || []).filter((_, i) => i !== index);
+      return {
+        ...prev,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          useCases: nextU,
+        },
+      };
+    });
+  };
+
+  const handleAddUseCase = () => {
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const nextU = [...(prev.aiSummary?.useCases || []), ''];
+      return {
+        ...prev,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          useCases: nextU,
+        },
+      };
+    });
+  };
+
+  const handleRemoveTag = (tagToRemove) => {
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const nextTags = (prev.tags || []).filter((t) => t !== tagToRemove);
+      return {
+        ...prev,
+        tags: nextTags,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          suggestedTags: nextTags,
+        },
+      };
+    });
+  };
+
+  const handleAddTag = () => {
+    const val = heroNewTag.trim().replace(/^#/, '');
+    if (!val) return;
+    setAnalysisResult((prev) => {
+      if (!prev) return null;
+      const currentTags = prev.tags || [];
+      if (currentTags.includes(val)) return prev;
+      const nextTags = [...currentTags, val];
+      return {
+        ...prev,
+        tags: nextTags,
+        aiSummary: {
+          ...(prev.aiSummary || {}),
+          suggestedTags: nextTags,
+        },
+      };
+    });
+    setHeroNewTag('');
+  };
+
   const handleConfirmSave = () => {
     if (!url.trim()) return;
 
@@ -130,22 +289,38 @@ export default function QuickAddHero({
       ? (analysisResult?.categoryId || 'cat-tools')
       : selectedCategory;
 
+    const cleanHighlights = (analysisResult?.aiSummary?.highlights || [])
+      .map((h) => h.trim())
+      .filter(Boolean);
+    const cleanUseCases = (analysisResult?.aiSummary?.useCases || [])
+      .map((u) => u.trim())
+      .filter(Boolean);
+
+    const finalAiSummary = analysisResult?.aiSummary ? {
+      ...analysisResult.aiSummary,
+      oneLiner: analysisResult.aiSummary.oneLiner?.trim() || userNote.trim() || '使用者手動收錄網址',
+      highlights: cleanHighlights.length > 0 ? cleanHighlights : ['手動收錄之優質資源'],
+      useCases: cleanUseCases.length > 0 ? cleanUseCases : ['日常開發與設計參考'],
+      suggestedCategory: finalCatId,
+      suggestedTags: analysisResult.tags?.length ? analysisResult.tags : ['常用收藏'],
+    } : {
+      oneLiner: userNote.trim() || '使用者手動收錄網址',
+      highlights: ['手動收錄之優質資源'],
+      useCases: ['日常開發與設計參考'],
+      suggestedCategory: finalCatId,
+      suggestedTags: ['常用收藏'],
+    };
+
     const newBookmark = {
       id: `bm-${Date.now()}`,
       url: url.trim(),
-      title: analysisResult?.title || url.trim(),
+      title: analysisResult?.title?.trim() || url.trim(),
       domain: analysisResult?.domain || new URL(url.startsWith('http') ? url : `https://${url}`).hostname,
       favicon: analysisResult?.favicon || `https://www.google.com/s2/favicons?domain=web&sz=64`,
       categoryId: finalCatId,
       userNote: userNote.trim(),
-      aiSummary: analysisResult?.aiSummary || {
-        oneLiner: userNote.trim() || '使用者手動收錄網址',
-        highlights: ['手動收錄之優質資源'],
-        useCases: ['日常開發與設計參考'],
-        suggestedCategory: finalCatId,
-        suggestedTags: ['常用收藏'],
-      },
-      tags: analysisResult?.tags || ['常用收藏'],
+      aiSummary: finalAiSummary,
+      tags: analysisResult?.tags?.length ? analysisResult.tags : ['常用收藏'],
       isFavorite: false,
       status: 'unread',
       createdAt: new Date().toISOString(),
@@ -164,6 +339,7 @@ export default function QuickAddHero({
     setAnalysisResult(null);
     setShowOptions(false);
     setErrorMsg('');
+    setHeroNewTag('');
   };
 
   return (
@@ -422,53 +598,249 @@ export default function QuickAddHero({
           )}
         </AnimatePresence>
 
-        {/* Live Result Preview Banner */}
+        {/* Live Result Preview Banner with In-place Editing */}
         <AnimatePresence>
           {analysisResult && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
-              className="p-5 rounded-2xl bg-slate-950/90 border border-indigo-500/40 text-left space-y-3 shadow-xl"
+              className="p-4 sm:p-6 rounded-2xl bg-slate-950/95 border border-indigo-500/40 text-left space-y-4 shadow-2xl backdrop-blur-xl"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>AI 已完成重點提煉！</span>
-                </div>
+              {/* Header Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-slate-800/80">
                 <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-2">
+                      AI 已完成重點提煉
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-500/30">
+                        ✏️ 支援即時編輯微調
+                      </span>
+                    </span>
+                    <p className="text-[11px] text-slate-400">點擊下方各欄位可直接修改，確認無誤後收錄</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={handleStartAnalysis}
-                    className="text-xs text-slate-400 hover:text-slate-200"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors border border-slate-800"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    <span>重新分析</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmSave}
+                    className="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>確認存入知識庫</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Title Field */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Edit3 className="w-3 h-3 text-indigo-400" />
+                  <span>網站標題 (Title)</span>
+                </label>
+                <input
+                  type="text"
+                  value={analysisResult.title || ''}
+                  onChange={(e) => handleUpdateTitle(e.target.value)}
+                  placeholder="網站標題"
+                  className="w-full text-sm font-bold bg-slate-900/90 border border-slate-700/80 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl px-3.5 py-2.5 text-slate-100 outline-none transition-all placeholder:text-slate-500"
+                />
+              </div>
+
+              {/* OneLiner Field */}
+              <div className="space-y-1">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3 h-3 text-indigo-400" />
+                  <span>AI 一句話核心定位 (One-Liner)</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={analysisResult.aiSummary?.oneLiner || ''}
+                  onChange={(e) => handleUpdateOneLiner(e.target.value)}
+                  placeholder="一句話精準定位該工具或專案的核心價值..."
+                  className="w-full text-xs bg-slate-900/90 border border-slate-700/80 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl p-3 text-slate-200 outline-none transition-all resize-none leading-relaxed placeholder:text-slate-500"
+                />
+              </div>
+
+              {/* Highlights Editable List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>核心亮點清單 (Highlights)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">
+                      ({(analysisResult.aiSummary?.highlights || []).length} 條)
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddHighlight}
+                    className="flex items-center gap-1 text-[11px] text-indigo-400 hover:text-indigo-300 hover:bg-indigo-950/50 px-2.5 py-1 rounded-md border border-indigo-500/30 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>新增亮點</span>
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  {(analysisResult.aiSummary?.highlights || []).map((h, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-indigo-400 font-bold shrink-0 w-4 text-right">
+                        {i + 1}.
+                      </span>
+                      <input
+                        type="text"
+                        value={h}
+                        onChange={(e) => handleUpdateHighlight(i, e.target.value)}
+                        placeholder={`亮點 ${i + 1}`}
+                        className="flex-1 text-xs bg-slate-900/90 border border-slate-700/70 focus:border-indigo-500 rounded-lg px-3 py-1.5 text-slate-200 outline-none transition-all placeholder:text-slate-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveHighlight(i)}
+                        className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors shrink-0"
+                        title="刪除此條亮點"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {(!analysisResult.aiSummary?.highlights || analysisResult.aiSummary.highlights.length === 0) && (
+                    <div className="text-xs text-slate-500 italic py-1">目前尚無亮點，點擊上方「新增亮點」添加</div>
+                  )}
+                </div>
+              </div>
+
+              {/* UseCases Editable List */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>適用場景 (Use Cases)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">
+                      ({(analysisResult.aiSummary?.useCases || []).length} 條)
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddUseCase}
+                    className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 hover:bg-cyan-950/50 px-2.5 py-1 rounded-md border border-cyan-500/30 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>新增場景</span>
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  {(analysisResult.aiSummary?.useCases || []).map((u, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[11px] font-mono text-cyan-400 font-bold shrink-0 w-4 text-right">
+                        {i + 1}.
+                      </span>
+                      <input
+                        type="text"
+                        value={u}
+                        onChange={(e) => handleUpdateUseCase(i, e.target.value)}
+                        placeholder={`適用情境 ${i + 1}`}
+                        className="flex-1 text-xs bg-slate-900/90 border border-slate-700/70 focus:border-cyan-500 rounded-lg px-3 py-1.5 text-slate-200 outline-none transition-all placeholder:text-slate-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveUseCase(i)}
+                        className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-slate-800 transition-colors shrink-0"
+                        title="刪除此場景"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {(!analysisResult.aiSummary?.useCases || analysisResult.aiSummary.useCases.length === 0) && (
+                    <div className="text-xs text-slate-500 italic py-1">目前尚無適用場景，點擊上方「新增場景」添加</div>
+                  )}
+                </div>
+              </div>
+
+              {/* Tags Section */}
+              <div className="space-y-2 pt-1 border-t border-slate-800/80">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Tag className="w-3 h-3 text-indigo-400" />
+                  <span>標籤管理 (Tags)</span>
+                </label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(analysisResult.tags || []).map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 text-[11px] bg-slate-900 border border-slate-700/80 text-slate-300 px-2.5 py-1 rounded-lg"
+                    >
+                      <span>#{t}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(t)}
+                        className="text-slate-500 hover:text-rose-400 transition-colors"
+                        title="刪除標籤"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      placeholder="新增標籤..."
+                      value={heroNewTag}
+                      onChange={(e) => setHeroNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddTag();
+                        }
+                      }}
+                      className="text-[11px] bg-slate-900 border border-slate-700/80 focus:border-indigo-500 rounded-lg px-2.5 py-1 text-slate-200 outline-none w-24 sm:w-28"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddTag}
+                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] rounded-lg transition-colors border border-slate-700"
+                    >
+                      新增
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <span className="text-[11px] text-slate-400 hidden sm:inline">
+                  💡 以上微調內容將於點擊「確認存入知識庫」時完整同步儲存
+                </span>
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={handleStartAnalysis}
+                    className="flex-1 sm:flex-none px-3.5 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-xl transition-colors border border-slate-800 text-center"
                   >
                     重新分析
                   </button>
                   <button
                     type="button"
                     onClick={handleConfirmSave}
-                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-xs"
+                    className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-500/25 transition-all"
                   >
-                    確認存入知識庫
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>確認存入知識庫</span>
                   </button>
                 </div>
               </div>
-
-              <div>
-                <h4 className="text-base font-bold text-slate-100">{analysisResult.title}</h4>
-                <p className="text-xs text-slate-300 mt-1">{analysisResult.aiSummary?.oneLiner}</p>
-              </div>
-
-              {analysisResult.aiSummary?.highlights && (
-                <ul className="text-xs text-slate-400 space-y-1">
-                  {analysisResult.aiSummary.highlights.slice(0, 3).map((h, i) => (
-                    <li key={i} className="flex items-start gap-1.5">
-                      <span className="text-indigo-400 font-bold">•</span>
-                      <span className="text-slate-300">{h}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </motion.div>
           )}
         </AnimatePresence>
