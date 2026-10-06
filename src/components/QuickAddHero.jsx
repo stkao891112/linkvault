@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Sparkles,
   Link2,
@@ -7,7 +7,8 @@ import {
   ChevronUp,
   MessageSquare,
   Lightbulb,
-  CheckCircle2
+  CheckCircle2,
+  Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { analyzeUrlWithAI } from '../services/aiService';
@@ -22,6 +23,7 @@ const SAMPLE_PRESETS = [
 export default function QuickAddHero({
   categories,
   onSaveBookmark,
+  onTriggerVision,
   customApiKey,
   apiProvider,
   customBaseUrl = '',
@@ -35,12 +37,50 @@ export default function QuickAddHero({
   const [analysisStep, setAnalysisStep] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const fileInputRef = useRef(null);
 
   const handleApplyPreset = (preset) => {
     setUrl(preset.url);
     setUserNote(preset.note);
     setShowOptions(true);
     setErrorMsg('');
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result;
+      if (dataUrl && onTriggerVision) {
+        onTriggerVision(dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleInputPaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          e.preventDefault();
+          const file = items[i].getAsFile();
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const dataUrl = ev.target?.result;
+              if (dataUrl && onTriggerVision) {
+                onTriggerVision(dataUrl);
+              }
+            };
+            reader.readAsDataURL(file);
+          }
+          return;
+        }
+      }
+    }
   };
 
   const handleStartAnalysis = async (e) => {
@@ -197,9 +237,10 @@ export default function QuickAddHero({
               <Link2 className={`w-5 h-5 shrink-0 transition-colors ${isAnalyzing ? 'text-cyan-400 animate-pulse' : 'text-indigo-400'}`} />
               <input
                 type="url"
-                placeholder="貼上網址 (例：https://github.com/... 或 https://...)"
+                placeholder="貼上網址 (例：https://... 或直接 Ctrl+V 貼上截圖)"
                 value={url}
                 disabled={isAnalyzing}
+                onPaste={handleInputPaste}
                 onChange={(e) => {
                   setUrl(e.target.value);
                   setErrorMsg('');
@@ -209,6 +250,25 @@ export default function QuickAddHero({
             </div>
 
             <div className="flex items-center gap-2 shrink-0 px-1 pb-1 sm:p-0">
+              {/* Hidden File Input for Screenshot */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-2 rounded-xl text-xs font-medium border bg-slate-900/90 hover:bg-slate-800 text-cyan-300 hover:text-cyan-200 border-cyan-500/30 hover:border-cyan-500/60 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="上傳截圖進行多網站視覺智能辨識"
+              >
+                <Camera className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">📸 截圖辨識</span>
+                <span className="sm:hidden">截圖</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowOptions(!showOptions)}
@@ -219,7 +279,7 @@ export default function QuickAddHero({
                 }`}
               >
                 <MessageSquare className="w-3.5 h-3.5" />
-                <span>筆記備註</span>
+                <span className="hidden sm:inline">筆記備註</span>
                 {showOptions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
               </button>
 
@@ -272,6 +332,9 @@ export default function QuickAddHero({
                 {p.label}
               </button>
             ))}
+            <span className="text-[11px] text-cyan-300/80 bg-cyan-950/40 border border-cyan-800/40 px-2 py-0.5 rounded-lg flex items-center gap-1">
+              <span>📸 支援 Ctrl+V / Cmd+V 貼圖辨識</span>
+            </span>
           </div>
         )}
 

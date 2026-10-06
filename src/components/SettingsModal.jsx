@@ -24,6 +24,16 @@ import {
   testSupabaseConnection,
 } from '../services/supabaseService';
 import {
+  testFirebaseConnection,
+  saveStoredFirebaseConfig,
+  getStoredFirebaseConfig,
+} from '../services/firebaseService';
+import {
+  CLOUD_PROVIDERS,
+  getActiveCloudProvider,
+  setActiveCloudProvider,
+} from '../services/cloudSync';
+import {
   fetchAvailableModels,
   DEFAULT_PROVIDER_MODELS,
 } from '../services/aiService';
@@ -43,6 +53,11 @@ export default function SettingsModal({
   setCustomBaseUrl = () => {},
   customModel = '',
   setCustomModel = () => {},
+  firebaseConfig = {},
+  onSaveFirebaseConfig = () => {},
+  activeCloudProvider = 'firebase',
+  setActiveCloudProvider = () => {},
+  cloudSyncStatus = 'OFFLINE',
   supabaseConfig = { url: '', anonKey: '', source: 'none' },
   supabaseSyncStatus = 'OFFLINE',
   onSaveSupabaseConfig = () => {},
@@ -50,6 +65,27 @@ export default function SettingsModal({
 }) {
   // Active Tab: sync | ai | backup
   const [activeTab, setActiveTab] = useState('sync');
+
+  // Cloud Provider: firebase | supabase
+  const [cloudProvider, setCloudProvider] = useState(() => getActiveCloudProvider());
+
+  // Firebase State
+  const [tempFirebaseConfig, setTempFirebaseConfig] = useState(() => {
+    const saved = getStoredFirebaseConfig();
+    return saved || {
+      apiKey: '',
+      projectId: '',
+      appId: '',
+      authDomain: '',
+      storageBucket: '',
+      messagingSenderId: '',
+    };
+  });
+  const [firebasePasteInput, setFirebasePasteInput] = useState('');
+  const [isTestingFirebase, setIsTestingFirebase] = useState(false);
+  const [firebaseTestResult, setFirebaseTestResult] = useState(null);
+  const [firebaseSaveSuccess, setFirebaseSaveSuccess] = useState(false);
+  const [copiedRules, setCopiedRules] = useState(false);
 
   // Supabase State
   const [tempSupabaseUrl, setTempSupabaseUrl] = useState(supabaseConfig.url || '');
@@ -155,6 +191,76 @@ export default function SettingsModal({
     setCustomModel(tempModel.trim());
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
+  };
+
+  // Parse Firebase Config Snippet
+  const handleParseFirebaseSnippet = (text) => {
+    setFirebasePasteInput(text);
+    if (!text || !text.trim()) return;
+
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.apiKey && parsed?.projectId) {
+        setTempFirebaseConfig((prev) => ({ ...prev, ...parsed }));
+        return;
+      }
+    } catch {}
+
+    const apiKeyMatch = text.match(/apiKey["']?\s*:\s*["']([^"']+)["']/);
+    const projectIdMatch = text.match(/projectId["']?\s*:\s*["']([^"']+)["']/);
+    const appIdMatch = text.match(/appId["']?\s*:\s*["']([^"']+)["']/);
+    const authDomainMatch = text.match(/authDomain["']?\s*:\s*["']([^"']+)["']/);
+    const storageBucketMatch = text.match(/storageBucket["']?\s*:\s*["']([^"']+)["']/);
+    const messagingSenderIdMatch = text.match(/messagingSenderId["']?\s*:\s*["']([^"']+)["']/);
+
+    if (apiKeyMatch || projectIdMatch) {
+      setTempFirebaseConfig((prev) => ({
+        ...prev,
+        apiKey: apiKeyMatch ? apiKeyMatch[1] : prev.apiKey,
+        projectId: projectIdMatch ? projectIdMatch[1] : prev.projectId,
+        appId: appIdMatch ? appIdMatch[1] : prev.appId,
+        authDomain: authDomainMatch ? authDomainMatch[1] : prev.authDomain,
+        storageBucket: storageBucketMatch ? storageBucketMatch[1] : prev.storageBucket,
+        messagingSenderId: messagingSenderIdMatch ? messagingSenderIdMatch[1] : prev.messagingSenderId,
+      }));
+    }
+  };
+
+  // Save Firebase Configuration
+  const handleSaveFirebase = (e) => {
+    e.preventDefault();
+    onSaveFirebaseConfig(tempFirebaseConfig);
+    setFirebaseSaveSuccess(true);
+    setTimeout(() => setFirebaseSaveSuccess(false), 2500);
+
+    if (tempFirebaseConfig.apiKey && tempFirebaseConfig.projectId) {
+      handleTestFirebase(tempFirebaseConfig);
+    }
+  };
+
+  // Test Firebase Connection
+  const handleTestFirebase = async (config = tempFirebaseConfig) => {
+    setIsTestingFirebase(true);
+    setFirebaseTestResult(null);
+    try {
+      const res = await testFirebaseConnection(config);
+      setFirebaseTestResult(res);
+    } catch (err) {
+      setFirebaseTestResult({
+        success: false,
+        message: `連線失敗：${err.message || '請確認 API Key 與安全性規則'}`,
+      });
+    } finally {
+      setIsTestingFirebase(false);
+    }
+  };
+
+  // Copy Firestore Security Rules
+  const handleCopyRules = () => {
+    const rules = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}`;
+    navigator.clipboard.writeText(rules);
+    setCopiedRules(true);
+    setTimeout(() => setCopiedRules(false), 3000);
   };
 
   // Save Supabase Configuration

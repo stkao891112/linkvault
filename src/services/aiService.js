@@ -141,6 +141,233 @@ export async function analyzeUrlWithAI({
 }
 
 /**
+ * Helper to compress image client-side to ensure rapid upload and avoid Vercel 4.5MB payload limit
+ */
+export async function compressImageForVision(dataUrl, maxDimension = 1600, quality = 0.85) {
+  if (typeof window === 'undefined' || !dataUrl.startsWith('data:image')) {
+    return dataUrl;
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Convert to JPEG for optimal payload size
+      const compressed = canvas.toDataURL('image/jpeg', quality);
+      resolve(compressed);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Multimodal Screenshot Vision Analysis Service
+ * Recognizes all websites/tools in screenshot and returns structured array
+ */
+export async function analyzeScreenshotWithVision({
+  imageBase64,
+  customApiKey = '',
+  apiProvider = 'gemini',
+  customModel = '',
+}) {
+  if (!imageBase64) {
+    throw new Error('請提供截圖資料 (Base64)');
+  }
+
+  // 1. Client-side image compression
+  const compressedImage = await compressImageForVision(imageBase64);
+  const cleanBase64 = compressedImage.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '');
+  const detectedMime = compressedImage.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+
+  const visionPrompt = `你是一個頂尖的網頁情報與技術視覺識別專家。分析這張截圖中出現的所有網站、開源專案、線上工具或設計資源。
+請辨識出截圖中包含的所有網站/工具項目（截圖中可能包含 1 個或多個不同網站，例如搜尋結果清單、書籤列表、社群貼文、GitHub 專案推薦、或網頁推薦列表）。
+
+對每個辨識出的項目，推論並提供其名稱、官網或 GitHub 網址、網域名稱、一句話核心亮點說明、關鍵特色亮點清單、建議分類（限選一：cat-ai, cat-frontend, cat-assets, cat-tools, cat-github）以及 2-4 個建議標籤。
+
+必須嚴格以繁體中文 (台灣) 輸出 JSON 陣列，格式如下，不要任何 Markdown 圍欄外文字：
+[
+  {
+    "title": "網站或專案完整名稱",
+    "guessedUrl": "https://... (推測之官方首頁或 GitHub 倉庫 URL)",
+    "domain": "網域名稱 (例如 github.com 或 figma.com)",
+    "oneLiner": "一句話核心價值或定位（50字內，精確具體，嚴禁泛泛而談）",
+    "highlights": ["核心亮點1", "核心亮點2", "核心亮點3"],
+    "suggestedCategory": "cat-tools",
+    "tags": ["標籤1", "標籤2", "標籤3"]
+  }
+]`;
+
+  // 2. Direct client-side Gemini Vision call if user supplied custom API key
+  if (customApiKey && apiProvider === 'gemini') {
+    const modelToTry = customModel?.trim() || 'gemini-3.8-flash';
+    const fallbackChain = Array.from(
+      new Set([modelToTry, 'gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'].filter(Boolean))
+    );
+
+    let lastError = null;
+    for (const m of fallbackChain) {
+      try {
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customApiKey.trim()}`;
+        const res = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: visionPrompt },
+                  { inlineData: { mimeType: detectedMime, data: cleanBase64 } },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          lastError = `Gemini Vision ${m} 回應 ${res.status}: ${errText}`;
+          continue;
+        }
+
+        const data = await res.json();
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const jsonMatch = rawText.match(/\[[\s\S]*\]/) || rawText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) continue;
+
+        let parsed = JSON.parse(jsonMatch[0]);
+        if (!Array.isArray(parsed)) {
+          parsed = parsed.items || parsed.websites || [parsed];
+        }
+
+        return {
+          success: true,
+          count: parsed.length,
+          modelUsed: m,
+          items: formatVisionItems(parsed),
+        };
+      } catch (err) {
+        lastError = err.message;
+      }
+    }
+    throw new Error(lastError || '直接調用 Gemini Vision 辨識失敗');
+  }
+
+  // 3. Cloud Serverless Execution (/api/analyze-vision with fallback to /api/analyze)
+  let visionResponse = null;
+  let visionErrorDetails = null;
+
+  try {
+    visionResponse = await fetch('/api/analyze-vision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image: compressedImage,
+        mimeType: detectedMime,
+        model: customModel || 'gemini-3.8-flash',
+      }),
+    });
+  } catch (err) {
+    visionErrorDetails = err.message;
+  }
+
+  // Fallback to /api/analyze if /api/analyze-vision is not reachable
+  if (!visionResponse || visionResponse.status === 404) {
+    try {
+      visionResponse = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: compressedImage,
+          mimeType: detectedMime,
+          model: customModel || 'gemini-3.8-flash',
+        }),
+      });
+    } catch (err) {
+      visionErrorDetails = err.message;
+    }
+  }
+
+  if (visionResponse && visionResponse.ok) {
+    const data = await visionResponse.json();
+    if (data.items && Array.isArray(data.items)) {
+      return {
+        success: true,
+        count: data.items.length,
+        modelUsed: data.modelUsed || 'gemini-3.8-flash',
+        items: formatVisionItems(data.items),
+      };
+    }
+  }
+
+  if (visionResponse && !visionResponse.ok) {
+    const errorData = await visionResponse.json().catch(() => ({}));
+    const errText = errorData.error || errorData.details || `狀態碼 ${visionResponse.status}`;
+    console.warn('[Vision Serverless Error]', errorData);
+    throw new Error(`視覺辨識伺服器回傳錯誤: ${errText}`);
+  }
+
+  throw new Error(`無法連接視覺辨識伺服器 (${visionErrorDetails || '請確認網路連線'})`);
+}
+
+/**
+ * Standardize and clean detected vision items
+ */
+function formatVisionItems(items) {
+  return items.map((item, idx) => {
+    const title = (item.title || `收錄網站 #${idx + 1}`).trim();
+    let domainStr = (item.domain || '').trim();
+    let guessedUrl = (item.guessedUrl || '').trim();
+
+    if (!domainStr && guessedUrl) {
+      try {
+        domainStr = new URL(guessedUrl.startsWith('http') ? guessedUrl : `https://${guessedUrl}`).hostname.replace(/^www\./, '');
+      } catch {}
+    }
+
+    if (!guessedUrl) {
+      guessedUrl = domainStr ? `https://${domainStr}` : 'https://example.com';
+    } else if (!guessedUrl.startsWith('http')) {
+      guessedUrl = `https://${guessedUrl}`;
+    }
+
+    return {
+      title,
+      guessedUrl,
+      domain: domainStr || getDomain(guessedUrl),
+      favicon: getFaviconUrl(guessedUrl),
+      oneLiner: item.oneLiner || `${title} 核心亮點與特色`,
+      highlights: Array.isArray(item.highlights) && item.highlights.length > 0 ? item.highlights : ['視覺識別多模態提煉亮點'],
+      suggestedCategory: item.suggestedCategory || 'cat-tools',
+      tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['截圖辨識'],
+      userNote: item.userNote || '來自截圖智能辨識',
+    };
+  });
+}
+
+/**
  * Call Vercel Serverless API (/api/analyze)
  * Executes Gemini analysis in the cloud using Vercel's GEMINI_API_KEY environment variable.
  */
@@ -160,8 +387,10 @@ export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghD
   });
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`Serverless API returned status ${response.status}: ${errorText.slice(0, 120)}`);
+    const errorData = await response.json().catch(() => null);
+    const errDetail = errorData?.error || errorData?.details || (await response.text().catch(() => ''));
+    console.error(`[LinkVault AI] /api/analyze 回傳錯誤 (${response.status}):`, errDetail);
+    throw new Error(`Serverless API 回傳狀態 ${response.status}: ${errDetail.slice(0, 160)}`);
   }
 
   const contentType = response.headers.get('content-type') || '';
@@ -176,7 +405,9 @@ export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghD
     throw new Error('Invalid JSON payload returned by /api/analyze');
   }
 
-  let categoryId = 'cat-tools';
+  console.info(`[LinkVault AI] 分析成功：${parsed.title} (來源: ${parsed.scrapedSource || 'web'}, 模型: ${parsed.modelUsed || model})`);
+
+  let categoryId = parsed.suggestedCategory || 'cat-tools';
   if (ghInfo) {
     categoryId = 'cat-github';
   }
@@ -384,28 +615,80 @@ function generateSmartHeuristicAnalysis({ url, domain, userNote, ghInfo, ghDetai
       '標準化企業 UI 元件庫規範'
     );
   }
-  // 5. Generic Developer & Utility Tools
-  else {
-    categoryId = 'cat-tools';
-    const siteName = domain.split('.')[0].toUpperCase();
-    title = userNote ? `${siteName} - ${userNote.slice(0, 30)}` : `${domain} - 實用效率工具站`;
+  // 5. AI Art / Anime Illustration / Creative Communities (e.g. chichi-pui, pixiv, civitai)
+  else if (
+    domain.includes('chichi-pui') ||
+    domain.includes('civitai') ||
+    domain.includes('pixiv') ||
+    domain.includes('artstation') ||
+    domain.includes('danbooru') ||
+    domain.includes('prompthero') ||
+    lowerUrl.includes('illust') ||
+    lowerUrl.includes('anime') ||
+    lowerNote.includes('繪圖') ||
+    lowerNote.includes('插畫') ||
+    lowerNote.includes('prompt')
+  ) {
+    categoryId = 'cat-ai';
+    const siteRaw = domain.replace(/\.[a-z.]+$/, '');
+    const siteName = siteRaw === 'chichi-pui' ? 'ちちぷい (Chichi-Pui)' : siteRaw.toUpperCase();
+    title = `${siteName} - AI 圖像創作與動漫繪圖社群`;
     oneLiner = userNote
-      ? `${userNote}（收錄於 ${domain}）`
-      : `收錄自 ${domain} 的高實用價值線上服務與效率工具。`;
+      ? `${userNote}（收錄自 ${siteName}）`
+      : `專注於 AI 生成動漫插畫、模型咒語 (Prompt) 分享與創作者互動的專業視覺社群。`;
 
-    tags.push('實用工具', '效率提升', 'Web服務');
+    tags.push('AI繪圖', '插畫社群', 'Prompt靈感', '動漫視覺');
 
     highlights.push(
-      '解決特定場景核心痛點，流程直覺、省去繁複操作步驟。',
-      userNote ? `重點筆記：${userNote}` : '輕量便捷，無需複雜安裝即可在瀏覽器端立即發揮效益。',
-      `網域來源可靠（${domain}），具備穩定的存取與服務品質。`,
-      '適合收藏作為日常開發、工作排程或專案協作的秘密武器庫。'
+      '聚集大量高精度 AI 生成插畫作品，提供豐富的 Prompt 提示詞與模型參數參考。',
+      '具備熱絡的創作者社群互動機制，定期舉辦主題繪圖企劃與人氣排行。',
+      userNote ? `個人筆記：${userNote}` : '便於探索新一代圖像生成模型的風格表現與微調應用。',
+      '介面專為插畫檢索優化，支援依標籤、風格與模型快速篩選瀏覽。'
     );
 
     useCases.push(
-      '日常開發除錯、格式轉換或效能驗證',
-      '優化團隊工作流程與知識積累',
-      '隨時調用的雲端便利百寶箱'
+      'AI 繪圖提示詞 (Prompt Engineering) 靈感發想與風格借鏡',
+      '探索角色設計、動漫風格與前沿生成模型視覺效果',
+      '關注日本與全球新一代 AI 繪師創作生態'
+    );
+  }
+  // 6. Generic Intelligent Domain Heuristics (Eliminates boilerplate canned text)
+  else {
+    categoryId = 'cat-tools';
+    const siteRaw = domain.replace(/\.[a-z.]+$/, '');
+    const capitalizedName = siteRaw.charAt(0).toUpperCase() + siteRaw.slice(1);
+    
+    // Extract domain clues
+    let domainFocus = '線上服務與專案資源';
+    if (lowerUrl.includes('blog') || lowerUrl.includes('read')) domainFocus = '深度技術部落格與知識閱讀';
+    else if (lowerUrl.includes('docs') || lowerUrl.includes('api')) domainFocus = '技術文檔與開發者手冊';
+    else if (lowerUrl.includes('app')) domainFocus = '雲端應用程式與協作平台';
+    else if (lowerUrl.includes('cloud')) domainFocus = '雲端基礎設施與部署服務';
+    else if (lowerUrl.includes('lab') || lowerUrl.includes('research')) domainFocus = '前沿技術實驗與研究成果';
+
+    title = userNote
+      ? `${capitalizedName} - ${userNote.slice(0, 36)}`
+      : `${capitalizedName} - ${domainFocus}`;
+
+    oneLiner = userNote
+      ? `${userNote}（存取自 ${domain}）`
+      : `收錄自 ${domain}，專注於 ${domainFocus} 的精選網路情報。`;
+
+    tags.push(capitalizedName, '精選收錄');
+    if (domainFocus.includes('閱讀') || domainFocus.includes('文檔')) tags.push('開發文件');
+    else tags.push('雲端資源');
+
+    highlights.push(
+      `專屬網域情報（${domain}），具備明確的主題聚焦與線上功能。`,
+      userNote ? `核心備註：${userNote}` : `收錄作為日常研究、工作流程或專案開發的重要參考錨點。`,
+      '頁面架構清晰，提供現代網頁標準的存取與即時互動體驗。',
+      '已建立智能情報索引，可隨時透過全局搜尋快速檢索。'
+    );
+
+    useCases.push(
+      '技術選型評估與日常工作流程參考',
+      '團隊知識庫沉澱與跨專案靈感借鏡',
+      '個人數位情報百寶箱快速調用'
     );
   }
 

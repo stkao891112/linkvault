@@ -9,20 +9,26 @@ import BookmarkDetailModal from './components/BookmarkDetailModal';
 import CategoryModal from './components/CategoryModal';
 import SettingsModal from './components/SettingsModal';
 import CommandPalette from './components/CommandPalette';
+import FocusCarouselModal from './components/FocusCarouselModal';
 import { INITIAL_CATEGORIES, INITIAL_BOOKMARKS } from './data/initialData';
 import * as cloudSync from './services/cloudSync';
 import {
-  resolveSupabaseConfig,
   saveStoredSupabaseConfig,
 } from './services/supabaseService';
 import {
   saveStoredFirebaseConfig,
   getStoredFirebaseConfig,
 } from './services/firebaseService';
-import { AnimatePresence } from 'motion/react';
+import {
+  analyzeScreenshotWithVision,
+  getFaviconUrl,
+} from './services/aiService';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Compass,
   CheckCircle2,
+  Loader2,
+  Camera,
 } from 'lucide-react';
 
 export default function App() {
@@ -109,7 +115,14 @@ export default function App() {
     }
   });
 
-  // 6. Toast Feedback State
+  // 6. Screenshot Vision Intelligence & Focus Carousel Stepper State
+  const [isVisionAnalyzing, setIsVisionAnalyzing] = useState(false);
+  const [visionAnalyzeStep, setVisionAnalyzeStep] = useState('');
+  const [carouselItems, setCarouselItems] = useState([]);
+  const [carouselScreenshot, setCarouselScreenshot] = useState('');
+  const [isCarouselOpen, setIsCarouselOpen] = useState(false);
+
+  // 7. Toast Feedback State
   const [toast, setToast] = useState(null);
 
   const showToast = (message, type = 'success') => {
@@ -362,6 +375,114 @@ export default function App() {
     showToast(`成功收錄「${newBm.title.slice(0, 20)}...」並完成 AI 提煉！`);
   };
 
+  // Batch Save Bookmarks from Focus Carousel Stepper
+  const handleBatchSaveFromCarousel = useCallback((confirmedItemsList) => {
+    if (!confirmedItemsList || confirmedItemsList.length === 0) return;
+
+    const newBookmarks = confirmedItemsList.map((item, idx) => {
+      const urlStr = item.guessedUrl?.startsWith('http') ? item.guessedUrl : `https://${item.guessedUrl || 'example.com'}`;
+      const catId = item.suggestedCategory || 'cat-tools';
+      return {
+        id: `bm-${Date.now()}-${idx}`,
+        url: urlStr,
+        title: item.title || urlStr,
+        domain: item.domain || new URL(urlStr).hostname.replace(/^www\./, ''),
+        favicon: item.favicon || getFaviconUrl(urlStr),
+        categoryId: catId,
+        userNote: item.userNote || '來自截圖智能辨識',
+        aiSummary: {
+          oneLiner: item.oneLiner || '',
+          highlights: Array.isArray(item.highlights) && item.highlights.length > 0 ? item.highlights : ['視覺識別多模態提煉亮點'],
+          useCases: ['日常開發與設計參考', '深度探訪與專案選型'],
+          suggestedCategory: catId,
+          suggestedTags: item.tags || ['截圖辨識'],
+        },
+        tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['截圖辨識'],
+        isFavorite: false,
+        status: 'unread',
+        createdAt: new Date(Date.now() + idx * 10).toISOString(),
+      };
+    });
+
+    setBookmarks((prev) => [...newBookmarks, ...prev]);
+
+    // Batch upsert to Cloud Sync
+    newBookmarks.forEach((bm) => {
+      cloudSync.upsertBookmark(bm).catch((err) => console.warn('Cloud batch upsert warning:', err));
+    });
+
+    showToast(`📸 截圖智能收錄：已將 ${newBookmarks.length} 個精選網站存入情報庫！`);
+  }, []);
+
+  // Trigger Screenshot Vision Analysis
+  const handleTriggerVision = useCallback(
+    async (dataUrl) => {
+      if (!dataUrl) return;
+
+      try {
+        setIsVisionAnalyzing(true);
+        setVisionAnalyzeStep('正在讀取截圖並進行視覺優化...');
+
+        await new Promise((r) => setTimeout(r, 200));
+        setVisionAnalyzeStep('Gemini Vision 多模態 AI 正在萃取頁面內所有網站與專案情報...');
+
+        const result = await analyzeScreenshotWithVision({
+          imageBase64: dataUrl,
+          customApiKey,
+          apiProvider,
+          customBaseUrl,
+          customModel,
+        });
+
+        if (result?.items && result.items.length > 0) {
+          setCarouselItems(result.items);
+          setCarouselScreenshot(dataUrl);
+          setIsCarouselOpen(true);
+          showToast(`📸 截圖智能識別成功！發現 ${result.items.length} 個網站項目`);
+        } else {
+          showToast('截圖中未識別出明確的網站或專案項目，請嘗試更清晰的截圖', 'info');
+        }
+      } catch (err) {
+        console.error('[Vision Analysis Failed]', err);
+        showToast(`截圖辨識失敗：${err.message || '請確認截圖內容或 API 設定'}`, 'error');
+      } finally {
+        setIsVisionAnalyzing(false);
+        setVisionAnalyzeStep('');
+      }
+    },
+    [customApiKey, apiProvider, customBaseUrl, customModel]
+  );
+
+  // Global Clipboard Paste Listener for Screenshots
+  useEffect(() => {
+    const handleGlobalPaste = (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf('image') !== -1 || item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const dataUrl = ev.target?.result;
+              if (dataUrl) {
+                handleTriggerVision(dataUrl);
+              }
+            };
+            reader.readAsDataURL(file);
+          }
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleGlobalPaste);
+    return () => window.removeEventListener('paste', handleGlobalPaste);
+  }, [handleTriggerVision]);
+
   const handleUpdateBookmark = (updatedBm) => {
     setBookmarks((prev) => prev.map((b) => (b.id === updatedBm.id ? updatedBm : b)));
     if (detailBookmark?.id === updatedBm.id) {
@@ -578,7 +699,7 @@ export default function App() {
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
           totalCount={bookmarks.length}
           filteredCount={filteredBookmarks.length}
-          supabaseSyncStatus={supabaseSyncStatus}
+          supabaseSyncStatus={cloudSyncStatus}
         />
 
       {/* Main Single-Column Fluid Container */}
@@ -588,6 +709,7 @@ export default function App() {
         <QuickAddHero
           categories={categories}
           onSaveBookmark={handleSaveBookmark}
+          onTriggerVision={handleTriggerVision}
           customApiKey={customApiKey}
           apiProvider={apiProvider}
           customBaseUrl={customBaseUrl}
@@ -740,11 +862,64 @@ export default function App() {
         setCustomBaseUrl={setCustomBaseUrl}
         customModel={customModel}
         setCustomModel={setCustomModel}
+        firebaseConfig={firebaseConfig}
+        onSaveFirebaseConfig={handleSaveFirebaseConfig}
+        activeCloudProvider={activeCloudProvider}
+        setActiveCloudProvider={setActiveCloudProvider}
+        cloudSyncStatus={cloudSyncStatus}
         supabaseConfig={supabaseConfig}
-        supabaseSyncStatus={supabaseSyncStatus}
+        supabaseSyncStatus={cloudSyncStatus}
         onSaveSupabaseConfig={handleSaveSupabaseConfig}
         onManualSyncToCloud={handleManualSyncToCloud}
       />
+
+      {/* Focus Carousel Stepper Modal for Screenshot Vision */}
+      <FocusCarouselModal
+        isOpen={isCarouselOpen}
+        onClose={() => setIsCarouselOpen(false)}
+        items={carouselItems}
+        screenshotPreview={carouselScreenshot}
+        categories={categories}
+        onSaveBatch={handleBatchSaveFromCarousel}
+      />
+
+      {/* Screenshot Vision Scanning Radar Overlay */}
+      <AnimatePresence>
+        {isVisionAnalyzing && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xl">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative max-w-md w-full bg-slate-900/95 border border-indigo-500/50 rounded-2xl p-6 sm:p-8 text-center shadow-[0_0_80px_rgba(99,102,241,0.4)] overflow-hidden space-y-4"
+            >
+              {/* Radar scan beam */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-shimmer-sweep" />
+              </div>
+
+              <div className="relative mx-auto w-16 h-16 rounded-2xl bg-indigo-950/80 border border-indigo-500/40 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                <Camera className="w-8 h-8 text-cyan-400 animate-pulse" />
+                <div className="absolute -inset-1 rounded-2xl bg-indigo-500/20 blur-sm -z-10 animate-ping opacity-60" />
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-cyan-300">
+                  📸 截圖智能識別中
+                </h3>
+                <p className="text-xs text-indigo-300 font-medium">
+                  {visionAnalyzeStep || 'Gemini Vision 多模態 AI 正在分析...'}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400 font-mono">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                <span>正在萃取所有網站項目與重點特徵...</span>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Global Command Palette (Cmd+K / Ctrl+K) */}
       <CommandPalette
