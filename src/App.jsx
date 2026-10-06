@@ -10,19 +10,15 @@ import CategoryModal from './components/CategoryModal';
 import SettingsModal from './components/SettingsModal';
 import CommandPalette from './components/CommandPalette';
 import { INITIAL_CATEGORIES, INITIAL_BOOKMARKS } from './data/initialData';
+import * as cloudSync from './services/cloudSync';
 import {
   resolveSupabaseConfig,
-  initSupabase,
   saveStoredSupabaseConfig,
-  fetchCategoriesFromSupabase,
-  fetchBookmarksFromSupabase,
-  upsertBookmarkToSupabase,
-  deleteBookmarkFromSupabase,
-  upsertCategoryToSupabase,
-  deleteCategoryFromSupabase,
-  batchUploadAllToSupabase,
-  subscribeToRealtimeChanges,
 } from './services/supabaseService';
+import {
+  saveStoredFirebaseConfig,
+  getStoredFirebaseConfig,
+} from './services/firebaseService';
 import { AnimatePresence } from 'motion/react';
 import {
   Compass,
@@ -49,9 +45,11 @@ export default function App() {
     }
   });
 
-  // 2. Supabase Cloud Sync & Realtime State
+  // 2. Cloud Sync & Realtime State
   const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '', source: 'none' });
-  const [supabaseSyncStatus, setSupabaseSyncStatus] = useState('OFFLINE'); // 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SUBSCRIBED'
+  const [firebaseConfig, setFirebaseConfig] = useState(() => getStoredFirebaseConfig() || {});
+  const [cloudSyncStatus, setCloudSyncStatus] = useState('OFFLINE'); // 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SUBSCRIBED'
+  const [activeCloudProvider, setActiveCloudProvider] = useState(() => cloudSync.getActiveCloudProvider());
   const [reconnectTrigger, setReconnectTrigger] = useState(0);
 
   // 3. Filter & View Mode State
@@ -103,9 +101,11 @@ export default function App() {
 
   const [customModel, setCustomModel] = useState(() => {
     try {
-      return localStorage.getItem('linkvault_custom_model') || '';
+      const saved = localStorage.getItem('linkvault_custom_model');
+      if (!saved || saved === 'gemini-1.5-flash') return 'gemini-3.8-flash';
+      return saved;
     } catch {
-      return '';
+      return 'gemini-3.8-flash';
     }
   });
 
@@ -158,64 +158,66 @@ export default function App() {
   // ==========================================
   // Supabase Cloud Sync Initialization & Realtime Subscription
   // ==========================================
+  // Cloud Sync Initialization & Realtime Subscription (Firebase & Supabase)
+  // ==========================================
   useEffect(() => {
     let unsubscribe = () => {};
     let isMounted = true;
 
-    async function initializeSupabase() {
+    async function initializeCloud() {
       try {
-        const config = await resolveSupabaseConfig();
+        const cloudMeta = await cloudSync.resolveActiveCloudConfig();
         if (!isMounted) return;
-        setSupabaseConfig(config);
+        setActiveCloudProvider(cloudMeta.provider);
 
-        if (!config.url || !config.anonKey) {
-          setSupabaseSyncStatus('OFFLINE');
+        if (!cloudMeta.isConfigured) {
+          setCloudSyncStatus('OFFLINE');
           return;
         }
 
-        setSupabaseSyncStatus('CONNECTING');
-        const client = initSupabase(config.url, config.anonKey);
+        setCloudSyncStatus('CONNECTING');
+        const client = await cloudSync.initActiveCloud(cloudMeta);
         if (!client) {
-          setSupabaseSyncStatus('OFFLINE');
+          setCloudSyncStatus('OFFLINE');
           return;
         }
 
-        // Fetch remote data from Supabase
-        const [remoteCats, remoteBms] = await Promise.all([
-          fetchCategoriesFromSupabase(),
-          fetchBookmarksFromSupabase(),
-        ]);
-
+        const { categories: remoteCats, bookmarks: remoteBms } = await cloudSync.fetchRemoteData(cloudMeta.provider);
         if (!isMounted) return;
 
         let hasRemoteData = false;
-
-        // If remote has bookmarks, sync them down
         if (remoteBms && remoteBms.length > 0) {
           setBookmarks(remoteBms);
           hasRemoteData = true;
         }
-
-        // If remote has categories, sync them down
         if (remoteCats && remoteCats.length > 0) {
           setCategories(remoteCats);
           hasRemoteData = true;
         }
 
-        // If remote tables exist but are empty, seed with current local data
         if (remoteBms !== null && remoteCats !== null && remoteBms.length === 0 && bookmarks.length > 0) {
           try {
-            await batchUploadAllToSupabase(bookmarks, categories);
-            showToast('已自動將本機情報資料初始化推播至 Supabase 雲端！');
+            await cloudSync.batchUploadAll(bookmarks, categories);
+            showToast('已自動將本機情報資料初始化推播至雲端資料庫！');
           } catch (seedErr) {
             console.warn('Initial cloud seed warning:', seedErr);
           }
         } else if (hasRemoteData) {
-          showToast('🟢 已連線 Supabase 雲端資料庫並同步最新資料');
+          const providerLabel = cloudMeta.provider === 'firebase' ? 'Firebase Firestore' : 'Supabase';
+          showToast(`🟢 已連線 ${providerLabel} 雲端資料庫並同步最新資料`);
         }
 
-        // Subscribe to Supabase Realtime changes
-        unsubscribe = subscribeToRealtimeChanges({
+        unsubscribe = cloudSync.subscribeToRemoteRealtime(cloudMeta.provider, {
+          onBookmarksChange: (newBms) => {
+            if (Array.isArray(newBms) && newBms.length > 0) {
+              setBookmarks(newBms);
+            }
+          },
+          onCategoriesChange: (newCats) => {
+            if (Array.isArray(newCats) && newCats.length > 0) {
+              setCategories(newCats);
+            }
+          },
           onBookmarkInsert: (newBm) => {
             setBookmarks((prev) => {
               if (prev.some((b) => b.id === newBm.id)) return prev;
@@ -250,19 +252,23 @@ export default function App() {
           onStatusChange: (status) => {
             if (!isMounted) return;
             if (status === 'SUBSCRIBED') {
-              setSupabaseSyncStatus('SUBSCRIBED');
-            } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-              setSupabaseSyncStatus('CONNECTED');
+              setCloudSyncStatus('SUBSCRIBED');
+            } else if (status === 'CONNECTED') {
+              setCloudSyncStatus('CONNECTED');
+            } else if (status === 'CONNECTING') {
+              setCloudSyncStatus('CONNECTING');
+            } else {
+              setCloudSyncStatus('OFFLINE');
             }
           },
         });
       } catch (err) {
-        console.warn('Supabase sync init exception:', err);
-        if (isMounted) setSupabaseSyncStatus('OFFLINE');
+        console.warn('Cloud sync init exception:', err);
+        if (isMounted) setCloudSyncStatus('OFFLINE');
       }
     }
 
-    initializeSupabase();
+    initializeCloud();
 
     return () => {
       isMounted = false;
@@ -270,15 +276,26 @@ export default function App() {
     };
   }, [reconnectTrigger]);
 
+  const handleSaveFirebaseConfig = (newCfg) => {
+    saveStoredFirebaseConfig(newCfg);
+    cloudSync.setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);
+    setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);
+    setFirebaseConfig(newCfg);
+    setReconnectTrigger((prev) => prev + 1);
+    showToast('Firebase 連線設定已儲存');
+  };
+
   const handleSaveSupabaseConfig = (newUrl, newKey) => {
     saveStoredSupabaseConfig({ url: newUrl, anonKey: newKey });
+    cloudSync.setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.SUPABASE);
+    setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.SUPABASE);
     setReconnectTrigger((prev) => prev + 1);
     showToast('Supabase 連線設定已儲存');
   };
 
   const handleManualSyncToCloud = async () => {
-    const res = await batchUploadAllToSupabase(bookmarks, categories);
-    showToast(`已成功同步 ${res.bmSuccessCount} 筆書籤與 ${res.catSuccessCount} 個分類至雲端！`);
+    const res = await cloudSync.batchUploadAll(bookmarks, categories);
+    showToast(`已成功同步至雲端資料庫！`);
     return res;
   };
 
@@ -341,7 +358,7 @@ export default function App() {
   // Actions
   const handleSaveBookmark = (newBm) => {
     setBookmarks((prev) => [newBm, ...prev]);
-    upsertBookmarkToSupabase(newBm).catch((err) => console.warn('Supabase upsert failed:', err));
+    cloudSync.upsertBookmark(newBm).catch((err) => console.warn('Cloud upsert failed:', err));
     showToast(`成功收錄「${newBm.title.slice(0, 20)}...」並完成 AI 提煉！`);
   };
 
@@ -350,12 +367,12 @@ export default function App() {
     if (detailBookmark?.id === updatedBm.id) {
       setDetailBookmark(updatedBm);
     }
-    upsertBookmarkToSupabase(updatedBm).catch((err) => console.warn('Supabase update failed:', err));
+    cloudSync.upsertBookmark(updatedBm).catch((err) => console.warn('Cloud update failed:', err));
   };
 
   const handleDeleteBookmark = (id) => {
     setBookmarks((prev) => prev.filter((b) => b.id !== id));
-    deleteBookmarkFromSupabase(id).catch((err) => console.warn('Supabase delete failed:', err));
+    cloudSync.deleteBookmark(id).catch((err) => console.warn('Cloud delete failed:', err));
     showToast('已自情報庫中刪除', 'info');
   };
 
@@ -364,7 +381,7 @@ export default function App() {
       prev.map((b) => {
         if (b.id === id) {
           const updated = { ...b, isFavorite: !b.isFavorite };
-          upsertBookmarkToSupabase(updated).catch((err) => console.warn('Supabase fav update failed:', err));
+          cloudSync.upsertBookmark(updated).catch((err) => console.warn('Cloud fav update failed:', err));
           return updated;
         }
         return b;
@@ -447,7 +464,7 @@ export default function App() {
       prev.map((b) => {
         if (b.id === id) {
           const updated = { ...b, status: b.status === 'read' ? 'unread' : 'read' };
-          upsertBookmarkToSupabase(updated).catch((err) => console.warn('Supabase status update failed:', err));
+          cloudSync.upsertBookmark(updated).catch((err) => console.warn('Cloud status update failed:', err));
           return updated;
         }
         return b;
@@ -457,7 +474,7 @@ export default function App() {
 
   const handleAddCategory = (newCat) => {
     setCategories((prev) => [...prev, newCat]);
-    upsertCategoryToSupabase(newCat).catch((err) => console.warn('Supabase add category failed:', err));
+    cloudSync.upsertCategory(newCat).catch((err) => console.warn('Cloud add category failed:', err));
     showToast(`已建立「${newCat.name}」自訂分類`);
   };
 
@@ -466,7 +483,7 @@ export default function App() {
     setBookmarks((prev) =>
       prev.map((b) => (b.categoryId === catId ? { ...b, categoryId: 'cat-tools' } : b))
     );
-    deleteCategoryFromSupabase(catId).catch((err) => console.warn('Supabase delete category failed:', err));
+    cloudSync.deleteCategory(catId).catch((err) => console.warn('Cloud delete category failed:', err));
     if (selectedCategory === catId) {
       setSelectedCategory('cat-all');
     }
@@ -480,9 +497,9 @@ export default function App() {
     setSelectedTag('');
     setFilterFavorite(false);
     setFilterUnread(false);
-    if (supabaseSyncStatus === 'SUBSCRIBED' || supabaseSyncStatus === 'CONNECTED') {
-      batchUploadAllToSupabase(INITIAL_BOOKMARKS, INITIAL_CATEGORIES).catch((err) =>
-        console.warn('Supabase reset upload failed:', err)
+    if (cloudSyncStatus === 'SUBSCRIBED' || cloudSyncStatus === 'CONNECTED') {
+      cloudSync.batchUploadAll(INITIAL_BOOKMARKS, INITIAL_CATEGORIES).catch((err) =>
+        console.warn('Cloud reset upload failed:', err)
       );
     }
     showToast('已重設為初始示範資料');
@@ -493,9 +510,9 @@ export default function App() {
     if (newCategories && newCategories.length > 0) {
       setCategories(newCategories);
     }
-    if (supabaseSyncStatus === 'SUBSCRIBED' || supabaseSyncStatus === 'CONNECTED') {
-      batchUploadAllToSupabase(newBookmarks, newCategories || categories).catch((err) =>
-        console.warn('Supabase import upload failed:', err)
+    if (cloudSyncStatus === 'SUBSCRIBED' || cloudSyncStatus === 'CONNECTED') {
+      cloudSync.batchUploadAll(newBookmarks, newCategories || categories).catch((err) =>
+        console.warn('Cloud import upload failed:', err)
       );
     }
     showToast(`已成功匯入 ${newBookmarks.length} 筆收藏資料！`);

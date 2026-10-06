@@ -122,6 +122,7 @@ export async function analyzeUrlWithAI({
         userNote,
         ghInfo,
         ghDetails,
+        model: customModel || 'gemini-3.8-flash',
       });
       if (serverResult) return serverResult;
     } catch (e) {
@@ -143,7 +144,7 @@ export async function analyzeUrlWithAI({
  * Call Vercel Serverless API (/api/analyze)
  * Executes Gemini analysis in the cloud using Vercel's GEMINI_API_KEY environment variable.
  */
-export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghDetails }) {
+export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghDetails, model = 'gemini-3.8-flash' }) {
   const response = await fetch('/api/analyze', {
     method: 'POST',
     headers: {
@@ -154,6 +155,7 @@ export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghD
       domain,
       userNote,
       ghDetails,
+      model,
     }),
   });
 
@@ -458,32 +460,59 @@ ${ghDetails ? `GitHub 資訊：${ghDetails.description}, Stars: ${ghDetails.star
 
   // 1. Google Gemini Provider
   if (provider === 'gemini') {
-    const model = customModel?.trim() || 'gemini-1.5-flash';
-    let endpoint = customBaseUrl?.trim()
-      ? `${customBaseUrl.trim().replace(/\/$/, '')}/models/${model}:generateContent?key=${apiKey?.trim()}`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey?.trim()}`;
+    const preferredModel = customModel?.trim() || 'gemini-3.8-flash';
+    const fallbackChain = Array.from(
+      new Set([
+        preferredModel,
+        'gemini-3.8-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-1.5-pro',
+      ].filter(Boolean))
+    );
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
+    let lastError = null;
+    for (const modelToTry of fallbackChain) {
+      try {
+        let endpoint = customBaseUrl?.trim()
+          ? `${customBaseUrl.trim().replace(/\/$/, '')}/models/${modelToTry}:generateContent?key=${apiKey?.trim()}`
+          : `https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${apiKey?.trim()}`;
 
-    if (!response.ok) {
-      throw new Error(`Gemini API returned ${response.status}`);
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.3,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          lastError = `Gemini API returned ${response.status}: ${errText}`;
+          console.warn(`[Gemini Direct Fallback] Model ${modelToTry} failed (${response.status}), trying next candidate...`);
+          continue;
+        }
+
+        const data = await response.json();
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+          break;
+        }
+      } catch (err) {
+        lastError = err.message;
+        console.warn(`[Gemini Direct Fallback] Exception with ${modelToTry}:`, err.message);
+      }
     }
 
-    const data = await response.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Invalid JSON returned by Gemini');
-    parsed = JSON.parse(jsonMatch[0]);
+    if (!parsed) {
+      throw new Error(lastError || 'Invalid JSON returned by Gemini');
+    }
   }
   // 2. OpenAI-compatible Providers (OpenAI, Groq, OpenRouter, Custom / Local Ollama / LM Studio)
   else {
@@ -560,11 +589,13 @@ ${ghDetails ? `GitHub 資訊：${ghDetails.description}, Stars: ${ghDetails.star
 
 export const DEFAULT_PROVIDER_MODELS = {
   gemini: [
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (推薦 / 快速且強大)' },
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (最新次世代)' },
-    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (深度推理)' },
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (最新預設首選 / 超高速響應)' },
+    { id: 'gemini-3.8-pro', name: 'Gemini 3.8 Pro (最新旗艦深度推理)' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (次世代旗艦推薦)' },
+    { id: 'gemini-2.0-pro', name: 'Gemini 2.0 Pro (高階多模態思考)' },
     { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite (極速輕量)' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (成熟穩定版)' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (經典長文本深度版)' },
   ],
   custom: [
     { id: 'llama3', name: 'llama3 (本機推薦)' },
@@ -622,7 +653,20 @@ export async function fetchAvailableModels({ provider = 'gemini', apiKey = '', b
           return { id, name: label };
         })
         .sort((a, b) => {
-          // 將常用 Flash / Pro 優先排在最前
+          // gemini-3.8-flash 最優先置頂推薦
+          if (a.id === 'gemini-3.8-flash') return -1;
+          if (b.id === 'gemini-3.8-flash') return 1;
+          // 3.8 系列優先於其他系列
+          const aIs38 = a.id.includes('3.8');
+          const bIs38 = b.id.includes('3.8');
+          if (aIs38 && !bIs38) return -1;
+          if (!aIs38 && bIs38) return 1;
+          // 2.0 系列優先於 1.5 系列
+          const aIs20 = a.id.includes('2.0');
+          const bIs20 = b.id.includes('2.0');
+          if (aIs20 && !bIs20) return -1;
+          if (!aIs20 && bIs20) return 1;
+          // Flash 優先於非 Flash
           if (a.id.includes('flash') && !b.id.includes('flash')) return -1;
           if (!a.id.includes('flash') && b.id.includes('flash')) return 1;
           return a.id.localeCompare(b.id);

@@ -65,7 +65,8 @@ export default function SettingsModal({
   const [tempApiKey, setTempApiKey] = useState(customApiKey || '');
   const [tempProvider, setTempProvider] = useState(apiProvider || 'gemini');
   const [tempBaseUrl, setTempBaseUrl] = useState(customBaseUrl || '');
-  const [tempModel, setTempModel] = useState(customModel || '');
+  const [tempModel, setTempModel] = useState(customModel || 'gemini-3.8-flash');
+  const [isCustomModelInput, setIsCustomModelInput] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importError, setImportError] = useState('');
 
@@ -86,7 +87,13 @@ export default function SettingsModal({
     setTempApiKey(customApiKey || '');
     setTempProvider(apiProvider || 'gemini');
     setTempBaseUrl(customBaseUrl || '');
-    setTempModel(customModel || '');
+    const modelToSet = customModel || (apiProvider === 'gemini' ? 'gemini-3.8-flash' : '');
+    setTempModel(modelToSet);
+
+    const defaults = DEFAULT_PROVIDER_MODELS[apiProvider || 'gemini'] || [];
+    if (modelToSet && !defaults.some((m) => m.id === modelToSet)) {
+      setIsCustomModelInput(true);
+    }
   }, [customApiKey, apiProvider, customBaseUrl, customModel]);
 
   // Load models dynamically or from presets
@@ -545,12 +552,12 @@ export default function SettingsModal({
                   <span>AI 分析引擎與模型調配</span>
                 </div>
                 <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                  模型動態獲取 • 免手動手打
+                  最新 Gemini 3.8 Flash • 免費雲端代跑
                 </span>
               </div>
 
               <p className="text-slate-400 leading-relaxed">
-                預設由 Vercel 伺服器代跑 GEMINI_API_KEY。若您希望調用個人私有金鑰或其他模型，系統會自動呼叫官方端點動態抓取可用模型，完全透過下拉選單選擇，無須記憶或手動輸入模型代號。
+                預設由 Vercel 伺服器代跑 GEMINI_API_KEY（首選最新的 gemini-3.8-flash，具備自動容錯降級）。無需自備金鑰即可開箱使用；您亦可填入個人私有金鑰或自由切換/手動填寫自訂與實驗型模型。
               </p>
 
               <form onSubmit={handleSaveApiSettings} className="space-y-3 pt-1">
@@ -625,39 +632,65 @@ export default function SettingsModal({
                   </div>
                 )}
 
-                {/* DYNAMIC MODEL SELECT DROPDOWN (Strictly No Manual Typing) */}
+                {/* DYNAMIC MODEL SELECT DROPDOWN / MANUAL INPUT */}
                 {tempProvider !== 'mock' && (
-                  <div className="space-y-1.5 p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                  <div className="space-y-2 p-3 rounded-xl bg-slate-900/90 border border-slate-800">
                     <div className="flex items-center justify-between">
                       <label className="font-semibold text-slate-200 flex items-center gap-1.5">
                         <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                        <span>動態模型選擇 (自動偵測可用清單)</span>
+                        <span>AI 模型選擇</span>
                       </label>
                       
-                      <button
-                        type="button"
-                        disabled={isFetchingModels}
-                        onClick={() => handleFetchModels(tempProvider, tempApiKey, tempBaseUrl)}
-                        className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 rounded-lg font-medium transition-colors cursor-pointer"
-                      >
-                        <RefreshCw className={`w-3 h-3 ${isFetchingModels ? 'animate-spin' : ''}`} />
-                        <span>{isFetchingModels ? '正在偵測...' : '🔄 獲取/更新模型清單'}</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsCustomModelInput(!isCustomModelInput)}
+                          className="text-[11px] text-indigo-300 hover:text-indigo-200 hover:underline cursor-pointer transition-colors"
+                        >
+                          {isCustomModelInput ? '📋 切換清單選單' : '✏️ 手動填寫模型號'}
+                        </button>
+                        {!isCustomModelInput && (
+                          <button
+                            type="button"
+                            disabled={isFetchingModels}
+                            onClick={() => handleFetchModels(tempProvider, tempApiKey, tempBaseUrl)}
+                            className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 rounded-lg font-medium transition-colors cursor-pointer"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${isFetchingModels ? 'animate-spin' : ''}`} />
+                            <span>{isFetchingModels ? '正在偵測...' : '🔄 獲取/更新模型清單'}</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
-                    <select
-                      value={tempModel}
-                      onChange={(e) => setTempModel(e.target.value)}
-                      className="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
-                    >
-                      {availableModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name || m.id}
-                        </option>
-                      ))}
-                    </select>
+                    {isCustomModelInput ? (
+                      <div className="space-y-1">
+                        <input
+                          type="text"
+                          placeholder="例如：gemini-3.8-flash, gemini-3.8-pro, 或自訂/實驗模型"
+                          value={tempModel}
+                          onChange={(e) => setTempModel(e.target.value)}
+                          className="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                        />
+                        <p className="text-[11px] text-slate-500">
+                          支援自由輸入 Google Gemini 或其他供應商之特殊/實驗型模型號。
+                        </p>
+                      </div>
+                    ) : (
+                      <select
+                        value={tempModel}
+                        onChange={(e) => setTempModel(e.target.value)}
+                        className="w-full p-2.5 bg-slate-950 border border-slate-700 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                      >
+                        {availableModels.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name || m.id}
+                          </option>
+                        ))}
+                      </select>
+                    )}
 
-                    {modelFetchMessage && (
+                    {modelFetchMessage && !isCustomModelInput && (
                       <div
                         className={`text-[11px] p-2 rounded-lg flex items-center gap-1.5 ${
                           modelFetchMessage.type === 'success'
@@ -675,7 +708,8 @@ export default function SettingsModal({
                     )}
 
                     <p className="text-[11px] text-slate-400">
-                      當前已選定：<code className="text-indigo-300 font-mono font-semibold">{tempModel || '預設模型'}</code>。系統已全面禁止手動手打模型名稱，確保呼叫端點 100% 精準有效。
+                      當前已選定：<code className="text-indigo-300 font-mono font-semibold">{tempModel || 'gemini-3.8-flash'}</code>
+                      {tempProvider === 'gemini' && !tempApiKey && '（由 Vercel 雲端 GEMINI_API_KEY 代跑，內建 3.8-flash -> 2.0-flash -> 1.5-flash 自動降級容錯）'}
                     </p>
                   </div>
                 )}

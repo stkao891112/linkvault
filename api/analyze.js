@@ -26,7 +26,7 @@ export default async function handler(req, res) {
       }
     }
 
-    const { url, domain, userNote, ghDetails } = body || {};
+    const { url, domain, userNote, ghDetails, model: requestedModel } = body || {};
 
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
@@ -39,7 +39,6 @@ export default async function handler(req, res) {
       });
     }
 
-    const model = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     const cleanDomain = domain || '';
 
     const prompt = `你是一個專業的技術與設計網站情報分析師。使用者提供了一個網址：${url}
@@ -56,51 +55,82 @@ ${ghDetails ? `GitHub 資訊：${ghDetails.description || ''}, Stars: ${ghDetail
   "suggestedTags": ["標籤1", "標籤2", "標籤3"]
 }`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const preferredModel = (process.env.GEMINI_MODEL || requestedModel || 'gemini-3.8-flash').trim();
+    // 優雅降級候選序列：首選/指定模型 -> gemini-3.8-flash -> gemini-2.0-flash -> gemini-1.5-flash -> gemini-1.5-pro
+    const fallbackChain = Array.from(
+      new Set([
+        preferredModel,
+        'gemini-3.8-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-1.5-pro',
+      ].filter(Boolean))
+    );
 
-    const geminiResponse = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: 'application/json',
-        },
-      }),
-    });
+    let lastError = null;
+    let successfulResult = null;
+    let actualModelUsed = preferredModel;
 
-    if (!geminiResponse.ok) {
-      const errText = await geminiResponse.text();
-      console.error('Gemini API Error:', geminiResponse.status, errText);
-      return res.status(geminiResponse.status).json({
-        error: `Gemini API returned status ${geminiResponse.status}`,
-        details: errText,
-      });
+    for (const modelToTry of fallbackChain) {
+      actualModelUsed = modelToTry;
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${apiKey}`;
+
+      try {
+        const geminiResponse = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.3,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
+
+        if (!geminiResponse.ok) {
+          const errText = await geminiResponse.text().catch(() => '');
+          lastError = `Model ${modelToTry} returned status ${geminiResponse.status}: ${errText}`;
+          console.warn(`[Gemini Fallback] Model ${modelToTry} failed (${geminiResponse.status}), trying next candidate...`);
+          continue;
+        }
+
+        const data = await geminiResponse.json();
+        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+
+        if (!jsonMatch) {
+          lastError = `Model ${modelToTry} returned non-JSON structure`;
+          console.warn(`[Gemini Fallback] ${lastError}, trying next candidate...`);
+          continue;
+        }
+
+        const parsed = JSON.parse(jsonMatch[0]);
+        successfulResult = parsed;
+        break; // 成功解析結構化 JSON，跳出降級循環
+      } catch (err) {
+        lastError = `Model ${modelToTry} fetch error: ${err.message}`;
+        console.warn(`[Gemini Fallback] Exception with ${modelToTry}:`, err.message);
+      }
     }
 
-    const data = await geminiResponse.json();
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) {
+    if (!successfulResult) {
       return res.status(502).json({
-        error: 'Failed to extract structured JSON from Gemini response',
-        rawText,
+        error: 'Failed to analyze URL with Gemini models after fallback chain',
+        details: lastError,
       });
     }
-
-    const parsed = JSON.parse(jsonMatch[0]);
 
     return res.status(200).json({
       success: true,
-      title: parsed.title,
-      oneLiner: parsed.oneLiner,
-      highlights: Array.isArray(parsed.highlights) ? parsed.highlights : [],
-      useCases: Array.isArray(parsed.useCases) ? parsed.useCases : [],
-      suggestedTags: Array.isArray(parsed.suggestedTags) ? parsed.suggestedTags : [],
+      modelUsed: actualModelUsed,
+      title: successfulResult.title,
+      oneLiner: successfulResult.oneLiner,
+      highlights: Array.isArray(successfulResult.highlights) ? successfulResult.highlights : [],
+      useCases: Array.isArray(successfulResult.useCases) ? successfulResult.useCases : [],
+      suggestedTags: Array.isArray(successfulResult.suggestedTags) ? successfulResult.suggestedTags : [],
     });
   } catch (error) {
     console.error('Vercel analyze function error:', error);
