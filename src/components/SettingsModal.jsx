@@ -490,161 +490,384 @@ export default function SettingsModal({
                 )}
               </div>
 
-              {/* Supabase Config Form */}
-              <form onSubmit={handleSaveSupabase} className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Cloud className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Supabase 雲端資料庫設定</span>
-                  </div>
-                  <span className="text-[11px] text-slate-400">
-                    採用繁體中文資料表：<code className="text-indigo-300 font-mono">書籤情報</code>、<code className="text-indigo-300 font-mono">知識分類</code>
-                  </span>
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    Supabase 專案網址 (Project URL)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="https://your-project-id.supabase.co"
-                    value={tempSupabaseUrl}
-                    onChange={(e) => setTempSupabaseUrl(e.target.value)}
-                    className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-medium text-slate-400 mb-1">
-                    Supabase 匿名金鑰 (Anon Public Key)
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                    value={tempSupabaseAnonKey}
-                    onChange={(e) => setTempSupabaseAnonKey(e.target.value)}
-                    className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
-                  />
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    提示：在 Vercel 專案設定 <code className="text-indigo-300 font-mono">SUPABASE_URL</code> 與 <code className="text-indigo-300 font-mono">SUPABASE_ANON_KEY</code>，手機與電腦即全自動免輸入！
-                  </p>
-                </div>
-
-                {/* Status Feedback */}
-                {supabaseTestResult && (
-                  <div
-                    className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
-                      supabaseTestResult.success
-                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
-                        : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
-                    }`}
-                  >
-                    {supabaseTestResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
-                    )}
-                    <div>{supabaseTestResult.message}</div>
-                  </div>
-                )}
-
-                {syncToCloudResult && (
-                  <div
-                    className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
-                      syncToCloudResult.success
-                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
-                        : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
-                    <span>{syncToCloudResult.message}</span>
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={isTestingSupabase || !tempSupabaseUrl || !tempSupabaseAnonKey}
-                      onClick={() => handleTestSupabase()}
-                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isTestingSupabase ? 'animate-spin' : ''}`} />
-                      <span>{isTestingSupabase ? '測試中...' : '測試連線'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={isSyncingToCloud || !tempSupabaseUrl || !tempSupabaseAnonKey}
-                      onClick={handlePushAllToCloud}
-                      className="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-300 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <Upload className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-spin' : ''}`} />
-                      <span>{isSyncingToCloud ? '同步上傳中...' : '一鍵推播本機全部資料到 Supabase'}</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {supabaseSaveSuccess && (
-                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> 已儲存
-                      </span>
-                    )}
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg font-semibold transition-colors shadow-lg shadow-indigo-500/25 cursor-pointer"
-                    >
-                      儲存連線設定
-                    </button>
-                  </div>
-                </div>
-              </form>
-
-              {/* Supabase Schema SQL Setup Section */}
-              <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>繁體中文建表與 Realtime 廣播 SQL</span>
-                  </div>
-                  <button
-                    onClick={handleCopySql}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
-                  >
-                    {copiedSql ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-200" />
-                        <span>已複製到剪貼簿！</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>一鍵複製 Supabase 建表 SQL</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <p className="text-slate-400 leading-relaxed">
-                  若您是首次配置 Supabase 專案，請前往{' '}
-                  <a
-                    href="https://supabase.com/dashboard"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-indigo-400 hover:underline inline-flex items-center gap-0.5"
-                  >
-                    Supabase 後台 <ExternalLink className="w-3 h-3 inline" />
-                  </a>
-                  ，點擊左側選單的 <strong>SQL Editor</strong>，點擊上方按鈕複製 SQL 腳本並貼上執行，即可自動建立繁體中文「書籤情報」與「知識分類」資料表，並啟用跨裝置秒級推播！
-                </p>
-
-                <div className="relative">
-                  <pre className="p-3 bg-slate-950 border border-slate-800 rounded-lg font-mono text-[11px] text-slate-300 max-h-36 overflow-y-auto leading-relaxed">
-                    {SUPABASE_SETUP_SQL}
-                  </pre>
-                </div>
+              {/* Cloud Provider Tabs */}
+              <div className="flex p-1 bg-slate-900 border border-slate-800 rounded-xl mb-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCloudProvider('firebase');
+                    setActiveCloudProvider('firebase');
+                  }}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    cloudProvider === 'firebase'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>🔥 Google Firebase (推薦 · 免費用量高無上限)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCloudProvider('supabase');
+                    setActiveCloudProvider('supabase');
+                  }}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                    cloudProvider === 'supabase'
+                      ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-xs'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>⚡ Supabase PostgreSQL</span>
+                </button>
               </div>
+
+              {cloudProvider === 'firebase' ? (
+                <>
+                  {/* Firebase Cloud Firestore Config Form */}
+                  <form onSubmit={handleSaveFirebase} className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Cloud className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Google Firebase (Cloud Firestore) 設定</span>
+                      </div>
+                      <span className="text-[11px] text-amber-400/90 font-medium">
+                        免費額度每日 50,000 次讀取 · 不受 2 個資料庫上限限制
+                      </span>
+                    </div>
+
+                    {/* Smart Paste Block */}
+                    <div className="p-3 bg-slate-900/60 border border-amber-500/20 rounded-xl space-y-1.5">
+                      <label className="block font-semibold text-amber-300 text-[11px] flex items-center justify-between">
+                        <span>✨ 智慧快速貼上 (直接貼上 Firebase SDK 程式碼片段或 JSON)</span>
+                        <a
+                          href="https://console.firebase.google.com/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-amber-400 hover:underline inline-flex items-center gap-0.5 text-[10px]"
+                        >
+                          開啟 Firebase 控制台 <ExternalLink className="w-2.5 h-2.5 inline" />
+                        </a>
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder={'在此貼上 const firebaseConfig = { apiKey: "...", projectId: "..." }; 系統將自動辨識各欄位！'}
+                        value={firebasePasteInput}
+                        onChange={(e) => handleParseFirebaseSnippet(e.target.value)}
+                        className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-[11px] text-slate-200 focus:ring-2 focus:ring-amber-500/20 resize-none"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block font-medium text-slate-400 mb-1">
+                          Project ID (專案 ID) <span className="text-amber-400">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="例如 linkvault-app"
+                          value={tempFirebaseConfig.projectId || ''}
+                          onChange={(e) => setTempFirebaseConfig((prev) => ({ ...prev, projectId: e.target.value }))}
+                          className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-amber-500/20"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-medium text-slate-400 mb-1">
+                          Web API Key <span className="text-amber-400">*</span>
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="AIzaSy..."
+                          value={tempFirebaseConfig.apiKey || ''}
+                          onChange={(e) => setTempFirebaseConfig((prev) => ({ ...prev, apiKey: e.target.value }))}
+                          className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-amber-500/20"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-medium text-slate-400 mb-1">
+                          App ID (應用程式 ID)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="1:123456789:web:abcdef..."
+                          value={tempFirebaseConfig.appId || ''}
+                          onChange={(e) => setTempFirebaseConfig((prev) => ({ ...prev, appId: e.target.value }))}
+                          className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-amber-500/20"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-medium text-slate-400 mb-1">
+                          Auth Domain (認證網域)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="your-project.firebaseapp.com"
+                          value={tempFirebaseConfig.authDomain || ''}
+                          onChange={(e) => setTempFirebaseConfig((prev) => ({ ...prev, authDomain: e.target.value }))}
+                          className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-amber-500/20"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Status Feedback */}
+                    {firebaseTestResult && (
+                      <div
+                        className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
+                          firebaseTestResult.success
+                            ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                            : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                        }`}
+                      >
+                        {firebaseTestResult.success ? (
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                        )}
+                        <div>{firebaseTestResult.message}</div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isTestingFirebase || !tempFirebaseConfig.apiKey || !tempFirebaseConfig.projectId}
+                          onClick={() => handleTestFirebase()}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isTestingFirebase ? 'animate-spin' : ''}`} />
+                          <span>{isTestingFirebase ? '測試中...' : '測試 Firebase 連線'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isSyncingToCloud || !tempFirebaseConfig.apiKey || !tempFirebaseConfig.projectId}
+                          onClick={handlePushAllToCloud}
+                          className="px-3 py-1.5 bg-amber-950/80 hover:bg-amber-900 border border-amber-500/40 text-amber-300 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Upload className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-spin' : ''}`} />
+                          <span>{isSyncingToCloud ? '同步上傳中...' : '一鍵推播本機全部資料到 Firebase'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {firebaseSaveSuccess && (
+                          <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" /> 已儲存
+                          </span>
+                        )}
+                        <button
+                          type="submit"
+                          className="px-4 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 rounded-lg font-bold transition-colors shadow-lg shadow-amber-500/25 cursor-pointer"
+                        >
+                          儲存 Firebase 設定
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+
+                  {/* Firebase Rules Helper */}
+                  <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Database className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Cloud Firestore 安全性規則 (Security Rules)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleCopyRules}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-lg font-bold transition-all shadow-md shadow-amber-600/20 cursor-pointer"
+                      >
+                        {copiedRules ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>已複製到剪貼簿！</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>一鍵複製 Firestore 規則</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-slate-400 leading-relaxed text-[11px]">
+                      前往 Firebase 控制台 ➔ 點擊左側 <strong>Firestore Database</strong> ➔ 點選 <strong>Rules (規則)</strong> 標籤，貼上以下規則並發布，即可開放瀏覽器端安全讀寫書籤：
+                    </p>
+                    <pre className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg font-mono text-[11px] text-amber-300/90 leading-relaxed">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+                    </pre>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Supabase Config Form */}
+                  <form onSubmit={handleSaveSupabase} className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Cloud className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>Supabase 雲端資料庫設定</span>
+                      </div>
+                      <span className="text-[11px] text-slate-400">
+                        採用繁體中文資料表：<code className="text-indigo-300 font-mono">書籤情報</code>、<code className="text-indigo-300 font-mono">知識分類</code>
+                      </span>
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-slate-400 mb-1">
+                        Supabase 專案網址 (Project URL)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="https://your-project-id.supabase.co"
+                        value={tempSupabaseUrl}
+                        onChange={(e) => setTempSupabaseUrl(e.target.value)}
+                        className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-slate-400 mb-1">
+                        Supabase 匿名金鑰 (Anon Public Key)
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                        value={tempSupabaseAnonKey}
+                        onChange={(e) => setTempSupabaseAnonKey(e.target.value)}
+                        className="w-full p-2 bg-slate-950 border border-slate-700/80 rounded-lg outline-none font-mono text-slate-100 focus:ring-2 focus:ring-indigo-500/20"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        提示：在 Vercel 專案設定 <code className="text-indigo-300 font-mono">SUPABASE_URL</code> 與 <code className="text-indigo-300 font-mono">SUPABASE_ANON_KEY</code>，手機與電腦即全自動免輸入！
+                      </p>
+                    </div>
+
+                    {/* Status Feedback */}
+                    {supabaseTestResult && (
+                      <div
+                        className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
+                          supabaseTestResult.success
+                            ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                            : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                        }`}
+                      >
+                        {supabaseTestResult.success ? (
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                        )}
+                        <div>{supabaseTestResult.message}</div>
+                      </div>
+                    )}
+
+                    {syncToCloudResult && (
+                      <div
+                        className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${
+                          syncToCloudResult.success
+                            ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                            : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                        <span>{syncToCloudResult.message}</span>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isTestingSupabase || !tempSupabaseUrl || !tempSupabaseAnonKey}
+                          onClick={() => handleTestSupabase()}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${isTestingSupabase ? 'animate-spin' : ''}`} />
+                          <span>{isTestingSupabase ? '測試中...' : '測試連線'}</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isSyncingToCloud || !tempSupabaseUrl || !tempSupabaseAnonKey}
+                          onClick={handlePushAllToCloud}
+                          className="px-3 py-1.5 bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/40 text-indigo-300 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <Upload className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-spin' : ''}`} />
+                          <span>{isSyncingToCloud ? '同步上傳中...' : '一鍵推播本機全部資料到 Supabase'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {supabaseSaveSuccess && (
+                          <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" /> 已儲存
+                          </span>
+                        )}
+                        <button
+                          type="submit"
+                          className="px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg font-semibold transition-colors shadow-lg shadow-indigo-500/25 cursor-pointer"
+                        >
+                          儲存連線設定
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+
+                  {/* Supabase Schema SQL Setup Section */}
+                  <div className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <Database className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>繁體中文建表與 Realtime 廣播 SQL</span>
+                      </div>
+                      <button
+                        onClick={handleCopySql}
+                        className="flex items-center gap-1.5 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+                      >
+                        {copiedSql ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-200" />
+                            <span>已複製到剪貼簿！</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            <span>一鍵複製 Supabase 建表 SQL</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <p className="text-slate-400 leading-relaxed">
+                      若您是首次配置 Supabase 專案，請前往{' '}
+                      <a
+                        href="https://supabase.com/dashboard"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-indigo-400 hover:underline inline-flex items-center gap-0.5"
+                      >
+                        Supabase 後台 <ExternalLink className="w-3 h-3 inline" />
+                      </a>
+                      ，點擊左側選單的 <strong>SQL Editor</strong>，點擊上方按鈕複製 SQL 腳本並貼上執行，即可自動建立繁體中文「書籤情報」與「知識分類」資料表，並啟用跨裝置秒級推播！
+                    </p>
+
+                    <div className="relative">
+                      <pre className="p-3 bg-slate-950 border border-slate-800 rounded-lg font-mono text-[11px] text-slate-300 max-h-36 overflow-y-auto leading-relaxed">
+                        {SUPABASE_SETUP_SQL}
+                      </pre>
+                    </div>
+                  </div>
+                </>
+              )}
 
             </div>
           )}
