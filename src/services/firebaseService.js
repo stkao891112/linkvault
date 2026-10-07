@@ -132,26 +132,49 @@ export async function testFirebaseConnection(config) {
   }
 
   try {
-    const { db } = reinitFirebaseApp(config);
-    if (!db) {
+    const { auth, db } = reinitFirebaseApp(config);
+    if (!auth || !db) {
       return { success: false, message: 'Firebase 初始化失敗，請檢查設定欄位' };
     }
-    // Attempt lightweight REST query to check project validity
-    const url = `https://firestore.googleapis.com/v1/projects/${config.projectId.trim()}/databases/(default)/documents?key=${config.apiKey.trim()}`;
-    const res = await fetch(url);
-    if (res.ok) {
+
+    try {
+      // Test database connectivity via official SDK
+      const testCol = collection(db, '_connection_test');
+      await getDocs(testCol);
       return {
         success: true,
-        message: `成功連線至 Firebase 專案 [${config.projectId}]！`,
+        message: `成功連線至 Firebase 專案 [${config.projectId}] 與 Firestore 資料庫！`,
+      };
+    } catch (dbErr) {
+      const code = dbErr?.code || '';
+      const msg = dbErr?.message || '';
+
+      // Permission denied actually PROVES that the Firestore database is active and responding securely!
+      if (code === 'permission-denied') {
+        return {
+          success: true,
+          message: `成功連線至 Firebase 專案 [${config.projectId}]！（資料庫安全性規則已生效保護，請直接使用 Google 帳號登入同步）`,
+        };
+      }
+
+      // Database not created yet or project invalid
+      if (code === 'failed-precondition' || msg.includes('not found') || msg.includes('does not exist')) {
+        return {
+          success: false,
+          message: `Firestore 資料庫尚未建立！請前往 Firebase 控制台 ➔ 點擊左側「Firestore Database」➔ 點擊「建立資料庫 (Create database)」。`,
+        };
+      }
+
+      return {
+        success: false,
+        message: `Firestore 提示 (${code || 'error'})：${msg || '請確認是否已在 Firebase 控制台啟用 Firestore 資料庫'}`,
       };
     }
-    const data = await res.json().catch(() => ({}));
+  } catch (err) {
     return {
       success: false,
-      message: `連線失敗 (${res.status})：${data.error?.message || '請確認 API Key 與 Project ID'}`,
+      message: `連線異常：${err.message || '請確認是否已在 Firebase 控制台建立 Firestore 資料庫'}`,
     };
-  } catch (err) {
-    return { success: false, message: `網路連線異常：${err.message}` };
   }
 }
 
