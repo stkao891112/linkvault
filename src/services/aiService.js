@@ -122,7 +122,7 @@ export async function analyzeUrlWithAI({
         userNote,
         ghInfo,
         ghDetails,
-        model: customModel || 'gemini-3.8-flash',
+        model: customModel || 'gemini-2.0-flash',
       });
       if (serverResult) return serverResult;
     } catch (e) {
@@ -216,46 +216,122 @@ export async function analyzeScreenshotWithVision({
   }
 ]`;
 
-  // 2. Direct client-side Gemini Vision call if user supplied custom API key
-  if (customApiKey && apiProvider === 'gemini') {
-    const modelToTry = customModel?.trim() || 'gemini-3.8-flash';
-    const fallbackChain = Array.from(
-      new Set([modelToTry, 'gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'].filter(Boolean))
-    );
+  // 2. Direct client-side Gemini / OpenAI / OpenRouter Multimodal Vision
+  if (customApiKey && (apiProvider === 'gemini' || apiProvider === 'openai' || apiProvider === 'openrouter')) {
+    // 2A. Google Gemini Vision
+    if (apiProvider === 'gemini') {
+      const modelToTry = customModel?.trim() || 'gemini-2.0-flash';
+      const fallbackChain = Array.from(
+        new Set([modelToTry, 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro'].filter(Boolean))
+      );
 
-    let lastError = null;
-    for (const m of fallbackChain) {
+      let lastError = null;
+      for (const m of fallbackChain) {
+        try {
+          const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customApiKey.trim()}`;
+          const res = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    { text: visionPrompt },
+                    { inlineData: { mimeType: detectedMime, data: cleanBase64 } },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.2,
+                responseMimeType: 'application/json',
+              },
+            }),
+          });
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({}));
+            const errMsg = errData.error?.message || (await res.text().catch(() => ''));
+            if (res.status === 429 || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota')) {
+              lastError = '⚠️ Gemini API 呼叫額度已耗盡 (429 Quota Exceeded / 資源耗盡)！Gemini 免費額度每分鐘限制 15 次請求。請稍候 1~2 分鐘後再試，或在「設定」中更換 API Key 或切換其他模型提供商。';
+              break;
+            } else if (res.status === 400 && errMsg.includes('API_KEY_INVALID')) {
+              lastError = '⚠️ Gemini API Key 無效，請檢查 API Key 是否正確。';
+              break;
+            }
+            lastError = `Gemini Vision ${m} 回應 ${res.status}: ${errMsg}`;
+            continue;
+          }
+
+          const data = await res.json();
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const jsonMatch = rawText.match(/\[[\s\S]*\]/) || rawText.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) continue;
+
+          let parsed = JSON.parse(jsonMatch[0]);
+          if (!Array.isArray(parsed)) {
+            parsed = parsed.items || parsed.websites || [parsed];
+          }
+
+          return {
+            success: true,
+            count: parsed.length,
+            modelUsed: m,
+            items: formatVisionItems(parsed),
+          };
+        } catch (err) {
+          lastError = err.message;
+        }
+      }
+      throw new Error(lastError || '直接調用 Gemini Vision 辨識失敗');
+    }
+
+    // 2B. OpenAI / OpenRouter Multimodal Vision
+    if (apiProvider === 'openai' || apiProvider === 'openrouter') {
+      const defaultModel = apiProvider === 'openrouter' ? 'openai/gpt-4o-mini' : 'gpt-4o-mini';
+      const modelToUse = customModel?.trim() || defaultModel;
+      const endpoint = apiProvider === 'openrouter'
+        ? 'https://openrouter.ai/api/v1/chat/completions'
+        : (customBaseUrl?.trim() ? `${customBaseUrl.trim().replace(/\/$/, '')}/chat/completions` : 'https://api.openai.com/v1/chat/completions');
+
       try {
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${customApiKey.trim()}`;
-        const res = await fetch(geminiUrl, {
+        const res = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${customApiKey.trim()}`,
+          },
           body: JSON.stringify({
-            contents: [
+            model: modelToUse,
+            messages: [
               {
-                parts: [
-                  { text: visionPrompt },
-                  { inlineData: { mimeType: detectedMime, data: cleanBase64 } },
+                role: 'user',
+                content: [
+                  { type: 'text', text: visionPrompt },
+                  {
+                    type: 'image_url',
+                    image_url: { url: `data:${detectedMime};base64,${cleanBase64}` },
+                  },
                 ],
               },
             ],
-            generationConfig: {
-              temperature: 0.2,
-              responseMimeType: 'application/json',
-            },
           }),
         });
 
         if (!res.ok) {
-          const errText = await res.text().catch(() => '');
-          lastError = `Gemini Vision ${m} 回應 ${res.status}: ${errText}`;
-          continue;
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `狀態碼 ${res.status}`;
+          if (res.status === 429) {
+            throw new Error(`⚠️ ${apiProvider.toUpperCase()} 額度已耗盡或速率受限 (429): ${errMsg}`);
+          }
+          throw new Error(`${apiProvider.toUpperCase()} 視覺模型回傳錯誤: ${errMsg}`);
         }
 
         const data = await res.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const rawText = data.choices?.[0]?.message?.content || '';
         const jsonMatch = rawText.match(/\[[\s\S]*\]/) || rawText.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) continue;
+        if (!jsonMatch) {
+          throw new Error('視覺模型未返回標準格式資料');
+        }
 
         let parsed = JSON.parse(jsonMatch[0]);
         if (!Array.isArray(parsed)) {
@@ -265,14 +341,13 @@ export async function analyzeScreenshotWithVision({
         return {
           success: true,
           count: parsed.length,
-          modelUsed: m,
+          modelUsed: modelToUse,
           items: formatVisionItems(parsed),
         };
       } catch (err) {
-        lastError = err.message;
+        throw new Error(err.message || `${apiProvider} Vision 調用失敗`);
       }
     }
-    throw new Error(lastError || '直接調用 Gemini Vision 辨識失敗');
   }
 
   // 3. Cloud Serverless Execution (/api/analyze-vision with fallback to /api/analyze)
@@ -286,7 +361,8 @@ export async function analyzeScreenshotWithVision({
       body: JSON.stringify({
         image: compressedImage,
         mimeType: detectedMime,
-        model: customModel || 'gemini-3.8-flash',
+        apiKey: customApiKey || undefined,
+        model: customModel || 'gemini-2.0-flash',
       }),
     });
   } catch (err) {
@@ -302,7 +378,8 @@ export async function analyzeScreenshotWithVision({
         body: JSON.stringify({
           image: compressedImage,
           mimeType: detectedMime,
-          model: customModel || 'gemini-3.8-flash',
+          apiKey: customApiKey || undefined,
+          model: customModel || 'gemini-2.0-flash',
         }),
       });
     } catch (err) {
@@ -316,7 +393,7 @@ export async function analyzeScreenshotWithVision({
       return {
         success: true,
         count: data.items.length,
-        modelUsed: data.modelUsed || 'gemini-3.8-flash',
+        modelUsed: data.modelUsed || 'gemini-2.0-flash',
         items: formatVisionItems(data.items),
       };
     }
@@ -324,9 +401,14 @@ export async function analyzeScreenshotWithVision({
 
   if (visionResponse && !visionResponse.ok) {
     const errorData = await visionResponse.json().catch(() => ({}));
-    const errText = errorData.error || errorData.details || `狀態碼 ${visionResponse.status}`;
+    let errText = errorData.error || errorData.details || `狀態碼 ${visionResponse.status}`;
+    if (errText.includes('GEMINI_API_KEY is not configured')) {
+      errText = '⚠️ 尚未設定 AI API Key！請點擊右上角「⚙️ 設定 ➔ AI」填入您的 Google Gemini 或 OpenAI API Key。';
+    } else if (errText.includes('429') || errText.includes('RESOURCE_EXHAUSTED') || errText.includes('quota')) {
+      errText = '⚠️ API 呼叫額度已耗盡 (429 Quota Exceeded)！Gemini 免費方案每分鐘限制 15 次請求，請稍候 1~2 分鐘後再試。';
+    }
     console.warn('[Vision Serverless Error]', errorData);
-    throw new Error(`視覺辨識伺服器回傳錯誤: ${errText}`);
+    throw new Error(errText);
   }
 
   throw new Error(`無法連接視覺辨識伺服器 (${visionErrorDetails || '請確認網路連線'})`);
@@ -371,7 +453,7 @@ function formatVisionItems(items) {
  * Call Vercel Serverless API (/api/analyze)
  * Executes Gemini analysis in the cloud using Vercel's GEMINI_API_KEY environment variable.
  */
-export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghDetails, model = 'gemini-3.8-flash' }) {
+export async function callServerlessAnalyze({ url, domain, userNote, ghInfo, ghDetails, model = 'gemini-2.0-flash' }) {
   const response = await fetch('/api/analyze', {
     method: 'POST',
     headers: {
@@ -743,13 +825,13 @@ ${ghDetails ? `GitHub 資訊：${ghDetails.description}, Stars: ${ghDetails.star
 
   // 1. Google Gemini Provider
   if (provider === 'gemini') {
-    const preferredModel = customModel?.trim() || 'gemini-3.8-flash';
+    const preferredModel = customModel?.trim() || 'gemini-2.0-flash';
     const fallbackChain = Array.from(
       new Set([
         preferredModel,
-        'gemini-3.8-flash',
         'gemini-2.0-flash',
         'gemini-1.5-flash',
+        'gemini-2.0-flash-lite',
         'gemini-1.5-pro',
       ].filter(Boolean))
     );
@@ -872,13 +954,10 @@ ${ghDetails ? `GitHub 資訊：${ghDetails.description}, Stars: ${ghDetails.star
 
 export const DEFAULT_PROVIDER_MODELS = {
   gemini: [
-    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (最新預設首選 / 超高速響應)' },
-    { id: 'gemini-3.8-pro', name: 'Gemini 3.8 Pro (最新旗艦深度推理)' },
-    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (次世代旗艦推薦)' },
-    { id: 'gemini-2.0-pro', name: 'Gemini 2.0 Pro (高階多模態思考)' },
-    { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite (極速輕量)' },
-    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (成熟穩定版)' },
-    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (經典長文本深度版)' },
+    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (最新預設首選 · 次世代極速推論)' },
+    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (經典穩定推薦 · 繁中流暢)' },
+    { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite (輕量極速)' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (旗艦長文本深度推理)' },
   ],
   custom: [
     { id: 'llama3', name: 'llama3 (本機推薦)' },

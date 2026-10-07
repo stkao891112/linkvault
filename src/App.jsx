@@ -116,10 +116,10 @@ export default function App() {
   const [customModel, setCustomModel] = useState(() => {
     try {
       const saved = localStorage.getItem('linkvault_custom_model');
-      if (!saved || saved === 'gemini-1.5-flash') return 'gemini-3.8-flash';
+      if (!saved || saved === 'gemini-1.5-flash' || saved === 'gemini-3.8-flash') return 'gemini-2.0-flash';
       return saved;
     } catch {
-      return 'gemini-3.8-flash';
+      return 'gemini-2.0-flash';
     }
   });
 
@@ -140,7 +140,7 @@ export default function App() {
     }, 2800);
   };
 
-  // Sync to LocalStorage
+  // Sync to LocalStorage & Auto Cloud Sync Across Devices
   useEffect(() => {
     try {
       localStorage.setItem('linkvault_categories', JSON.stringify(categories));
@@ -165,6 +165,7 @@ export default function App() {
     }
   }, [viewMode]);
 
+  // Sync AI Settings to LocalStorage & Google Cloud (Multi-Device Auto-Sync)
   useEffect(() => {
     try {
       localStorage.setItem('linkvault_custom_apikey', customApiKey);
@@ -174,7 +175,18 @@ export default function App() {
     } catch (e) {
       console.warn('LocalStorage save failed:', e);
     }
-  }, [customApiKey, apiProvider, customBaseUrl, customModel]);
+
+    if (currentUser?.uid) {
+      cloudSync
+        .saveUserSettings(currentUser.uid, {
+          customApiKey,
+          apiProvider,
+          customBaseUrl,
+          customModel,
+        })
+        .catch((err) => console.warn('Failed to sync AI settings to Firestore:', err));
+    }
+  }, [customApiKey, apiProvider, customBaseUrl, customModel, currentUser?.uid]);
 
   // ==========================================
   // Firebase Auth State Listener (Google Account)
@@ -227,12 +239,34 @@ export default function App() {
             return;
           }
 
-          // Fetch per-user data
-          const { categories: remoteCats, bookmarks: remoteBms } = await cloudSync.fetchRemoteData(
-            cloudSync.CLOUD_PROVIDERS.FIREBASE,
-            currentUser.uid
-          );
+          // Fetch per-user data (Bookmarks, Categories & AI Settings)
+          const [remoteData, remoteSettings] = await Promise.all([
+            cloudSync.fetchRemoteData(cloudSync.CLOUD_PROVIDERS.FIREBASE, currentUser.uid),
+            cloudSync.fetchUserSettings(currentUser.uid),
+          ]);
           if (!isMounted) return;
+
+          const { categories: remoteCats, bookmarks: remoteBms } = remoteData || {};
+
+          // Sync AI Model & API Key Settings across devices
+          if (remoteSettings) {
+            if (remoteSettings.customApiKey) {
+              setCustomApiKey(remoteSettings.customApiKey);
+              try { localStorage.setItem('linkvault_custom_apikey', remoteSettings.customApiKey); } catch {}
+            }
+            if (remoteSettings.apiProvider) {
+              setApiProvider(remoteSettings.apiProvider);
+              try { localStorage.setItem('linkvault_api_provider', remoteSettings.apiProvider); } catch {}
+            }
+            if (remoteSettings.customBaseUrl !== undefined) {
+              setCustomBaseUrl(remoteSettings.customBaseUrl);
+              try { localStorage.setItem('linkvault_custom_baseurl', remoteSettings.customBaseUrl); } catch {}
+            }
+            if (remoteSettings.customModel) {
+              setCustomModel(remoteSettings.customModel);
+              try { localStorage.setItem('linkvault_custom_model', remoteSettings.customModel); } catch {}
+            }
+          }
 
           let hasRemoteData = false;
           if (remoteBms && remoteBms.length > 0) {
@@ -273,6 +307,25 @@ export default function App() {
               onCategoriesChange: (newCats) => {
                 if (Array.isArray(newCats)) {
                   setCategories(newCats);
+                }
+              },
+              onSettingsChange: (newSettings) => {
+                if (!isMounted || !newSettings) return;
+                if (newSettings.customApiKey !== undefined) {
+                  setCustomApiKey(newSettings.customApiKey);
+                  try { localStorage.setItem('linkvault_custom_apikey', newSettings.customApiKey); } catch {}
+                }
+                if (newSettings.apiProvider) {
+                  setApiProvider(newSettings.apiProvider);
+                  try { localStorage.setItem('linkvault_api_provider', newSettings.apiProvider); } catch {}
+                }
+                if (newSettings.customBaseUrl !== undefined) {
+                  setCustomBaseUrl(newSettings.customBaseUrl);
+                  try { localStorage.setItem('linkvault_custom_baseurl', newSettings.customBaseUrl); } catch {}
+                }
+                if (newSettings.customModel) {
+                  setCustomModel(newSettings.customModel);
+                  try { localStorage.setItem('linkvault_custom_model', newSettings.customModel); } catch {}
                 }
               },
               onStatusChange: (status) => {

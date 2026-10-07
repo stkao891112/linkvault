@@ -31,6 +31,8 @@ import {
   loginWithGoogle,
   logoutFirebase,
   subscribeToAuth,
+  saveUserSettingsToFirestore,
+  fetchUserSettingsFromFirestore,
 } from './firebaseService';
 
 export const CLOUD_PROVIDERS = {
@@ -177,6 +179,14 @@ export async function deleteCategory(id, provider = getActiveCloudProvider(), us
     return deleteCategoryFromFirestore(userId, id);
   }
   return deleteCategoryFromSupabase(id);
+}
+
+export async function saveUserSettings(userId, settings) {
+  return saveUserSettingsToFirestore(userId, settings);
+}
+
+export async function fetchUserSettings(userId) {
+  return fetchUserSettingsFromFirestore(userId);
 }
 
 export { loginWithGoogle, logoutFirebase, subscribeToAuth };

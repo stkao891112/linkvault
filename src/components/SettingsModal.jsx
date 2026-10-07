@@ -109,7 +109,7 @@ export default function SettingsModal({
   const [tempApiKey, setTempApiKey] = useState(customApiKey || '');
   const [tempProvider, setTempProvider] = useState(apiProvider || 'gemini');
   const [tempBaseUrl, setTempBaseUrl] = useState(customBaseUrl || '');
-  const [tempModel, setTempModel] = useState(customModel || 'gemini-3.8-flash');
+  const [tempModel, setTempModel] = useState(customModel || 'gemini-2.0-flash');
   const [isCustomModelInput, setIsCustomModelInput] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importError, setImportError] = useState('');
@@ -131,7 +131,7 @@ export default function SettingsModal({
     setTempApiKey(customApiKey || '');
     setTempProvider(apiProvider || 'gemini');
     setTempBaseUrl(customBaseUrl || '');
-    const modelToSet = customModel || (apiProvider === 'gemini' ? 'gemini-3.8-flash' : '');
+    const modelToSet = customModel || (apiProvider === 'gemini' ? 'gemini-2.0-flash' : '');
     setTempModel(modelToSet);
 
     const defaults = DEFAULT_PROVIDER_MODELS[apiProvider || 'gemini'] || [];
@@ -995,12 +995,12 @@ export default function SettingsModal({
                   <span>AI 分析引擎與模型調配</span>
                 </div>
                 <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full">
-                  最新 Gemini 3.8 Flash • 免費雲端代跑
+                  Gemini 2.0 Flash • 多裝置自動同步
                 </span>
               </div>
 
-              <p className="text-slate-400 leading-relaxed">
-                預設由 Vercel 伺服器代跑 GEMINI_API_KEY（首選最新的 gemini-3.8-flash，具備自動容錯降級）。無需自備金鑰即可開箱使用；您亦可填入個人私有金鑰或自由切換/手動填寫自訂與實驗型模型。
+              <p className="text-slate-400 leading-relaxed text-xs">
+                預設首選次世代 <code className="text-amber-300 font-mono">gemini-2.0-flash</code>（內建 1.5-flash 自動容錯降級）。在此處填寫或切換 AI 提供商與金鑰後，<strong>所有登入同帳號的裝置（手機、平板、電腦）將全自動即時同步</strong>！
               </p>
 
               <form onSubmit={handleSaveApiSettings} className="space-y-3 pt-1">
@@ -1151,8 +1151,8 @@ export default function SettingsModal({
                     )}
 
                     <p className="text-[11px] text-slate-400">
-                      當前已選定：<code className="text-indigo-300 font-mono font-semibold">{tempModel || 'gemini-3.8-flash'}</code>
-                      {tempProvider === 'gemini' && !tempApiKey && '（由 Vercel 雲端 GEMINI_API_KEY 代跑，內建 3.8-flash -> 2.0-flash -> 1.5-flash 自動降級容錯）'}
+                      當前已選定：<code className="text-indigo-300 font-mono font-semibold">{tempModel || 'gemini-2.0-flash'}</code>
+                      {tempProvider === 'gemini' && '（內建 2.0-flash ➔ 1.5-flash 自動容錯降級，已開啟跨裝置即時同步）'}
                     </p>
                   </div>
                 )}

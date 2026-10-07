@@ -159,13 +159,13 @@ export default async function handler(req, res) {
     const { url, domain, userNote, ghDetails, model: requestedModel, image, mimeType } = body || {};
 
     const apiKey = process.env.GEMINI_API_KEY || body?.apiKey;
-    const preferredModel = (process.env.GEMINI_MODEL || requestedModel || 'gemini-3.8-flash').trim();
+    const preferredModel = (process.env.GEMINI_MODEL || requestedModel || 'gemini-2.0-flash').trim();
     const fallbackChain = Array.from(
       new Set([
         preferredModel,
-        'gemini-3.8-flash',
         'gemini-2.0-flash',
         'gemini-1.5-flash',
+        'gemini-2.0-flash-lite',
         'gemini-1.5-pro',
       ].filter(Boolean))
     );

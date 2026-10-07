@@ -23,6 +23,7 @@ import {
   setDoc,
   deleteDoc,
   getDocs,
+  getDoc,
   onSnapshot,
   writeBatch,
 } from 'firebase/firestore';
@@ -531,15 +532,81 @@ export function subscribeToFirestoreRealtime(userId, callbacks = {}) {
       }
     );
 
+    // 3. Listen to User Settings (AI config, Model provider, API keys)
+    let unsubSettings = () => {};
+    try {
+      const settingsDocRef = doc(db, 'users', userId, 'settings', 'ai_config');
+      unsubSettings = onSnapshot(
+        settingsDocRef,
+        (snap) => {
+          if (snap.exists()) {
+            callbacks.onSettingsChange?.(snap.data());
+          }
+        },
+        (error) => {
+          console.warn('[Firebase Firestore] Settings realtime error:', error);
+        }
+      );
+    } catch (e) {
+      console.warn('[Firebase Firestore] Settings sub exception:', e);
+    }
+
     return () => {
       unsubBookmarks();
       unsubCategories();
+      unsubSettings();
       callbacks.onStatusChange?.('OFFLINE');
     };
   } catch (err) {
     console.warn('[Firebase] subscribe exception:', err);
     callbacks.onStatusChange?.('OFFLINE');
     return () => {};
+  }
+}
+
+/**
+ * Save user settings (AI Provider, API Keys, Custom Models) to Firestore
+ */
+export async function saveUserSettingsToFirestore(userId, settings = {}) {
+  if (!userId) return { success: false, message: '未登入 Google 帳號' };
+  const { db } = getFirebaseInstance();
+  if (!db) return { success: false, message: 'Firebase 資料庫尚未就緒' };
+
+  try {
+    const docRef = doc(db, 'users', userId, 'settings', 'ai_config');
+    await setDoc(
+      docRef,
+      {
+        ...settings,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+    return { success: true };
+  } catch (err) {
+    console.warn('[Firebase] saveUserSettings error:', err);
+    return { success: false, message: err.message };
+  }
+}
+
+/**
+ * Fetch user settings from Firestore
+ */
+export async function fetchUserSettingsFromFirestore(userId) {
+  if (!userId) return null;
+  const { db } = getFirebaseInstance();
+  if (!db) return null;
+
+  try {
+    const docRef = doc(db, 'users', userId, 'settings', 'ai_config');
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Firebase] fetchUserSettings error:', err);
+    return null;
   }
 }
 
