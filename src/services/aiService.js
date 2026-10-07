@@ -187,6 +187,7 @@ export async function analyzeScreenshotWithVision({
   imageBase64,
   customApiKey = '',
   apiProvider = 'gemini',
+  customBaseUrl = '',
   customModel = '',
 }) {
   if (!imageBase64) {
