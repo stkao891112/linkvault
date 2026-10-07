@@ -251,7 +251,7 @@ export default function SettingsModal({
     setIsTestingFirebase(true);
     setFirebaseTestResult(null);
     try {
-      const res = await testFirebaseConnection(config);
+      const res = await testFirebaseConnection(config, currentUser?.uid);
       setFirebaseTestResult(res);
     } catch (err) {
       setFirebaseTestResult({
@@ -260,6 +260,30 @@ export default function SettingsModal({
       });
     } finally {
       setIsTestingFirebase(false);
+    }
+  };
+
+  // Batch Push Local Data to Firebase for Current Google User
+  const handlePushAllToFirebase = async () => {
+    if (!currentUser) {
+      alert('請先登入 Google 帳號！');
+      return;
+    }
+    setIsSyncingToCloud(true);
+    setFirebaseTestResult(null);
+    try {
+      const res = await onManualSyncToCloud();
+      setFirebaseTestResult({
+        success: true,
+        message: `✨ 已成功將本機 ${bookmarks.length} 筆書籤與 ${categories.length} 個分類推播至 Google 帳號 (${currentUser.email}) 專屬雲端庫！`,
+      });
+    } catch (err) {
+      setFirebaseTestResult({
+        success: false,
+        message: `同步失敗：${err.message}`,
+      });
+    } finally {
+      setIsSyncingToCloud(false);
     }
   };
 
@@ -742,7 +766,7 @@ export default function SettingsModal({
                         <button
                           type="button"
                           disabled={isSyncingToCloud || !currentUser}
-                          onClick={handlePushAllToCloud}
+                          onClick={handlePushAllToFirebase}
                           className="px-3 py-1.5 bg-amber-950/80 hover:bg-amber-900 disabled:opacity-50 border border-amber-500/40 text-amber-300 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                         >
                           <Upload className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-spin' : ''}`} />

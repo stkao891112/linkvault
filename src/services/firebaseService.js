@@ -126,7 +126,7 @@ export function reinitFirebaseApp(newConfig) {
 /**
  * Test Firebase Connection (Validates config by pinging Firestore / Auth)
  */
-export async function testFirebaseConnection(config) {
+export async function testFirebaseConnection(config, userId = null) {
   if (!config?.projectId || !config?.apiKey) {
     return { success: false, message: '請提供完整的 Project ID 與 Web API Key' };
   }
@@ -138,12 +138,14 @@ export async function testFirebaseConnection(config) {
     }
 
     try {
-      // Test database connectivity via official SDK
-      const testCol = collection(db, '_connection_test');
-      await getDocs(testCol);
+      // Test database connectivity via official SDK: if user is logged in, query their isolated collection
+      const targetCol = userId
+        ? collection(db, 'users', userId, 'bookmarks')
+        : collection(db, '_connection_test');
+      await getDocs(targetCol);
       return {
         success: true,
-        message: `成功連線至 Firebase 專案 [${config.projectId}] 與 Firestore 資料庫！`,
+        message: `成功連線至 Firebase 專案 [${config.projectId}]！專屬資料庫握手成功，即時同步就緒。`,
       };
     } catch (dbErr) {
       const code = dbErr?.code || '';
@@ -153,7 +155,7 @@ export async function testFirebaseConnection(config) {
       if (code === 'permission-denied') {
         return {
           success: true,
-          message: `成功連線至 Firebase 專案 [${config.projectId}]！（資料庫安全性規則已生效保護，請直接使用 Google 帳號登入同步）`,
+          message: `成功連線至 Firebase 專案 [${config.projectId}]！（資料庫安全性規則已生效保護，請使用 Google 帳號登入同步）`,
         };
       }
 
