@@ -216,8 +216,12 @@ export async function analyzeScreenshotWithVision({
   }
 ]`;
 
-  // 2. Direct client-side Gemini / OpenAI / OpenRouter Multimodal Vision
-  if (customApiKey && (apiProvider === 'gemini' || apiProvider === 'openai' || apiProvider === 'openrouter')) {
+  // 2. Direct client-side Multimodal Vision (Gemini, Custom/Agnes, OpenAI, OpenRouter)
+  if (
+    (apiProvider === 'gemini' && customApiKey) ||
+    (apiProvider === 'custom' && (customBaseUrl || customApiKey)) ||
+    ((apiProvider === 'openai' || apiProvider === 'openrouter') && customApiKey)
+  ) {
     // 2A. Google Gemini Vision
     if (apiProvider === 'gemini') {
       const modelToTry = customModel?.trim() || 'gemini-2.0-flash';
@@ -285,21 +289,38 @@ export async function analyzeScreenshotWithVision({
       throw new Error(lastError || '直接調用 Gemini Vision 辨識失敗');
     }
 
-    // 2B. OpenAI / OpenRouter Multimodal Vision
-    if (apiProvider === 'openai' || apiProvider === 'openrouter') {
-      const defaultModel = apiProvider === 'openrouter' ? 'openai/gpt-4o-mini' : 'gpt-4o-mini';
-      const modelToUse = customModel?.trim() || defaultModel;
-      const endpoint = apiProvider === 'openrouter'
-        ? 'https://openrouter.ai/api/v1/chat/completions'
-        : (customBaseUrl?.trim() ? `${customBaseUrl.trim().replace(/\/$/, '')}/chat/completions` : 'https://api.openai.com/v1/chat/completions');
+    // 2B. OpenAI / OpenRouter / Custom Endpoint (Agnes, Ollama, LM Studio, vLLM) Multimodal Vision
+    if (apiProvider === 'openai' || apiProvider === 'openrouter' || apiProvider === 'custom') {
+      let endpoint = 'https://api.openai.com/v1/chat/completions';
+      let modelToUse = customModel?.trim() || 'gpt-4o-mini';
+
+      if (apiProvider === 'openrouter') {
+        endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+        modelToUse = customModel?.trim() || 'openai/gpt-4o-mini';
+      } else if (apiProvider === 'custom') {
+        let base = (customBaseUrl || 'http://localhost:11434/v1').trim().replace(/\/$/, '');
+        if (base && !base.startsWith('http://') && !base.startsWith('https://')) {
+          base = `https://${base}`;
+        }
+        endpoint = base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
+        modelToUse = customModel?.trim() || 'default';
+      } else if (customBaseUrl?.trim()) {
+        let base = customBaseUrl.trim().replace(/\/$/, '');
+        if (base && !base.startsWith('http://') && !base.startsWith('https://')) {
+          base = `https://${base}`;
+        }
+        endpoint = base.endsWith('/chat/completions') ? base : `${base}/chat/completions`;
+      }
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (customApiKey && customApiKey.trim()) {
+        headers['Authorization'] = `Bearer ${customApiKey.trim()}`;
+      }
 
       try {
         const res = await fetch(endpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${customApiKey.trim()}`,
-          },
+          headers,
           body: JSON.stringify({
             model: modelToUse,
             messages: [
@@ -314,23 +335,24 @@ export async function analyzeScreenshotWithVision({
                 ],
               },
             ],
+            temperature: 0.2,
           }),
         });
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          const errMsg = errData.error?.message || `狀態碼 ${res.status}`;
+          const errMsg = errData.error?.message || errData.message || (await res.text().catch(() => '')) || `狀態碼 ${res.status}`;
           if (res.status === 429) {
             throw new Error(`⚠️ ${apiProvider.toUpperCase()} 額度已耗盡或速率受限 (429): ${errMsg}`);
           }
-          throw new Error(`${apiProvider.toUpperCase()} 視覺模型回傳錯誤: ${errMsg}`);
+          throw new Error(`${apiProvider === 'custom' ? '自訂端點 (Agnes)' : apiProvider.toUpperCase()} 視覺模型回傳錯誤 (${res.status}): ${errMsg}`);
         }
 
         const data = await res.json();
         const rawText = data.choices?.[0]?.message?.content || '';
         const jsonMatch = rawText.match(/\[[\s\S]*\]/) || rawText.match(/\{[\s\S]*\}/);
         if (!jsonMatch) {
-          throw new Error('視覺模型未返回標準格式資料');
+          throw new Error(`視覺模型未返回標準格式資料：${rawText.slice(0, 100)}`);
         }
 
         let parsed = JSON.parse(jsonMatch[0]);
@@ -345,7 +367,7 @@ export async function analyzeScreenshotWithVision({
           items: formatVisionItems(parsed),
         };
       } catch (err) {
-        throw new Error(err.message || `${apiProvider} Vision 調用失敗`);
+        throw new Error(err.message || `${apiProvider === 'custom' ? '自訂端點' : apiProvider} 視覺辨識失敗`);
       }
     }
   }
