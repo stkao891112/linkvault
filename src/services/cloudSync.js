@@ -1,6 +1,7 @@
 /**
  * CloudSync Unified Sync Adapter
  * Seamlessly abstracts and manages multi-cloud persistence across Supabase and Firebase Firestore.
+ * Supports per-user data isolation for Google Accounts.
  */
 
 import {
@@ -18,13 +19,18 @@ import {
 
 import {
   getStoredFirebaseConfig,
-  fetchBookmarksFromFirebase,
-  fetchCategoriesFromFirebase,
-  upsertBookmarkToFirebase,
-  deleteBookmarkFromFirebase,
-  upsertCategoryToFirebase,
-  deleteCategoryFromFirebase,
-  batchUploadAllToFirebase,
+  getFirebaseInstance,
+  fetchBookmarksFromFirestore,
+  fetchCategoriesFromFirestore,
+  upsertBookmarkToFirestore,
+  deleteBookmarkFromFirestore,
+  upsertCategoryToFirestore,
+  deleteCategoryFromFirestore,
+  batchUploadAllToFirestore,
+  subscribeToFirestoreRealtime,
+  loginWithGoogle,
+  logoutFirebase,
+  subscribeToAuth,
 } from './firebaseService';
 
 export const CLOUD_PROVIDERS = {
@@ -37,10 +43,11 @@ const STORAGE_KEY_ACTIVE_PROVIDER = 'linkvault_active_cloud_provider';
 export function getActiveCloudProvider() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_PROVIDER);
-    if (saved === CLOUD_PROVIDERS.FIREBASE) return CLOUD_PROVIDERS.FIREBASE;
-    return CLOUD_PROVIDERS.SUPABASE;
+    if (saved === CLOUD_PROVIDERS.SUPABASE) return CLOUD_PROVIDERS.SUPABASE;
+    // Default to Firebase if configured or by user choice
+    return saved || CLOUD_PROVIDERS.FIREBASE;
   } catch {
-    return CLOUD_PROVIDERS.SUPABASE;
+    return CLOUD_PROVIDERS.FIREBASE;
   }
 }
 
@@ -56,7 +63,7 @@ export async function resolveActiveCloudConfig() {
   const provider = getActiveCloudProvider();
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
     const fbCfg = getStoredFirebaseConfig();
-    const isConfigured = Boolean(fbCfg?.projectId);
+    const isConfigured = Boolean(fbCfg?.projectId && fbCfg?.apiKey);
     return {
       provider: CLOUD_PROVIDERS.FIREBASE,
       isConfigured,
@@ -64,7 +71,7 @@ export async function resolveActiveCloudConfig() {
     };
   }
 
-  // Supabase (Default)
+  // Supabase
   const sbCfg = await resolveSupabaseConfig();
   const isConfigured = Boolean(sbCfg.url && sbCfg.anonKey);
   return {
@@ -78,20 +85,24 @@ export async function initActiveCloud(cloudMeta) {
   if (!cloudMeta?.isConfigured) return null;
 
   if (cloudMeta.provider === CLOUD_PROVIDERS.FIREBASE) {
-    return { provider: 'firebase', config: cloudMeta.config };
+    const { app } = getFirebaseInstance(cloudMeta.config);
+    return app ? { provider: 'firebase', config: cloudMeta.config } : null;
   }
 
   // Supabase
   return initSupabase(cloudMeta.config);
 }
 
-export async function fetchRemoteData(provider = getActiveCloudProvider()) {
+/**
+ * Fetch remote data:
+ * If Firebase, requires userId (Google user UID) to isolate accounts.
+ */
+export async function fetchRemoteData(provider = getActiveCloudProvider(), userId = null) {
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
-    const cfg = getStoredFirebaseConfig();
-    if (!cfg?.projectId) return { categories: null, bookmarks: null };
+    if (!userId) return { categories: null, bookmarks: null };
     const [bms, cats] = await Promise.all([
-      fetchBookmarksFromFirebase(cfg),
-      fetchCategoriesFromFirebase(cfg),
+      fetchBookmarksFromFirestore(userId),
+      fetchCategoriesFromFirestore(userId),
     ]);
     return { categories: cats, bookmarks: bms };
   }
@@ -104,72 +115,68 @@ export async function fetchRemoteData(provider = getActiveCloudProvider()) {
   return { categories: cats, bookmarks: bms };
 }
 
-export async function batchUploadAll(bookmarks, categories, provider = getActiveCloudProvider()) {
+/**
+ * Batch upload data to cloud
+ */
+export async function batchUploadAll(bookmarks, categories, provider = getActiveCloudProvider(), userId = null) {
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
-    const cfg = getStoredFirebaseConfig();
-    return batchUploadAllToFirebase(cfg, bookmarks, categories);
+    if (!userId) return { success: false, message: '請先登入 Google 帳號' };
+    return batchUploadAllToFirestore(userId, bookmarks, categories);
   }
 
   // Supabase
   return batchUploadAllToSupabase(bookmarks, categories);
 }
 
-export function subscribeToRemoteRealtime(provider = getActiveCloudProvider(), callbacks = {}) {
+/**
+ * Realtime subscription with live callbacks
+ */
+export function subscribeToRemoteRealtime(provider = getActiveCloudProvider(), callbacks = {}, userId = null) {
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
-    // Lightweight polling loop for Firebase Firestore changes
-    callbacks.onStatusChange?.('CONNECTED');
-    const interval = setInterval(async () => {
-      try {
-        const cfg = getStoredFirebaseConfig();
-        if (cfg?.projectId) {
-          const bms = await fetchBookmarksFromFirebase(cfg);
-          if (bms && bms.length > 0) {
-            callbacks.onBookmarksChange?.(bms);
-          }
-        }
-      } catch (e) {
-        // Ignore background polling error
-      }
-    }, 15000);
-
-    return () => {
-      clearInterval(interval);
+    if (!userId) {
       callbacks.onStatusChange?.('OFFLINE');
-    };
+      return () => {};
+    }
+    return subscribeToFirestoreRealtime(userId, callbacks);
   }
 
   // Supabase Realtime Subscription
   return subscribeToRealtimeChanges(callbacks);
 }
 
-export async function upsertBookmark(bookmark, provider = getActiveCloudProvider()) {
+/**
+ * CRUD with Per-User Firestore Support
+ */
+export async function upsertBookmark(bookmark, provider = getActiveCloudProvider(), userId = null) {
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
-    const cfg = getStoredFirebaseConfig();
-    return upsertBookmarkToFirebase(cfg, bookmark);
+    if (!userId) return;
+    return upsertBookmarkToFirestore(userId, bookmark);
   }
   return upsertBookmarkToSupabase(bookmark);
 }
 
-export async function deleteBookmark(id, provider = getActiveCloudProvider()) {
+export async function deleteBookmark(id, provider = getActiveCloudProvider(), userId = null) {
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
-    const cfg = getStoredFirebaseConfig();
-    return deleteBookmarkFromFirebase(cfg, id);
+    if (!userId) return;
+    return deleteBookmarkFromFirestore(userId, id);
   }
   return deleteBookmarkFromSupabase(id);
 }
 
-export async function upsertCategory(category, provider = getActiveCloudProvider()) {
+export async function upsertCategory(category, provider = getActiveCloudProvider(), userId = null) {
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
-    const cfg = getStoredFirebaseConfig();
-    return upsertCategoryToFirebase(cfg, category);
+    if (!userId) return;
+    return upsertCategoryToFirestore(userId, category);
   }
   return upsertCategoryToSupabase(category);
 }
 
-export async function deleteCategory(id, provider = getActiveCloudProvider()) {
+export async function deleteCategory(id, provider = getActiveCloudProvider(), userId = null) {
   if (provider === CLOUD_PROVIDERS.FIREBASE) {
-    const cfg = getStoredFirebaseConfig();
-    return deleteCategoryFromFirebase(cfg, id);
+    if (!userId) return;
+    return deleteCategoryFromFirestore(userId, id);
   }
   return deleteCategoryFromSupabase(id);
 }
+
+export { loginWithGoogle, logoutFirebase, subscribeToAuth };

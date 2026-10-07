@@ -18,6 +18,10 @@ import {
   WifiOff,
   CheckCircle2,
   Sparkles,
+  LogOut,
+  User,
+  ShieldCheck,
+  LogIn,
 } from 'lucide-react';
 import {
   SUPABASE_SETUP_SQL,
@@ -27,6 +31,7 @@ import {
   testFirebaseConnection,
   saveStoredFirebaseConfig,
   getStoredFirebaseConfig,
+  FIRESTORE_PER_USER_RULES,
 } from '../services/firebaseService';
 import {
   CLOUD_PROVIDERS,
@@ -62,6 +67,9 @@ export default function SettingsModal({
   supabaseSyncStatus = 'OFFLINE',
   onSaveSupabaseConfig = () => {},
   onManualSyncToCloud = () => {},
+  currentUser = null,
+  onGoogleLogin = () => {},
+  onGoogleLogout = () => {},
 }) {
   // Active Tab: sync | ai | backup
   const [activeTab, setActiveTab] = useState('sync');
@@ -257,8 +265,7 @@ export default function SettingsModal({
 
   // Copy Firestore Security Rules
   const handleCopyRules = () => {
-    const rules = `rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}`;
-    navigator.clipboard.writeText(rules);
+    navigator.clipboard.writeText(FIRESTORE_PER_USER_RULES);
     setCopiedRules(true);
     setTimeout(() => setCopiedRules(false), 3000);
   };
@@ -524,12 +531,102 @@ export default function SettingsModal({
 
               {cloudProvider === 'firebase' ? (
                 <>
+                  {/* Google Account Authentication & Per-User Isolation Banner */}
+                  <div className="p-4 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-950/40 via-slate-900 to-indigo-950/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-amber-300 text-xs sm:text-sm flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        <span>Google 帳號登入與各帳號獨立資料隔離</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold">
+                        每個帳號各自獨立 · 互不混淆
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      透過 Google 帳號登入，系統會自動在 Firestore 的 <code className="text-amber-300 px-1 py-0.5 rounded bg-slate-950 font-mono">users/&#123;你的Google UID&#125;/</code> 專屬目錄下建立書籤與分類，完全切分不同 Google 帳號的資料！
+                    </p>
+
+                    {currentUser ? (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                        <div className="flex items-center gap-3">
+                          {currentUser.photoURL ? (
+                            <img
+                              src={currentUser.photoURL}
+                              alt="Google User"
+                              className="w-10 h-10 rounded-full border-2 border-emerald-500/50 object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-sm">
+                              {(currentUser.displayName || 'G').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-bold text-slate-100 flex items-center gap-1.5">
+                              <span>{currentUser.displayName}</span>
+                              <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                雲端即時同步中
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 font-mono">{currentUser.email}</div>
+                            <div className="text-[10px] text-slate-500 font-mono">UID: {currentUser.uid}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={onGoogleLogout}
+                            className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>登出此 Google 帳號</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-950/80 rounded-xl border border-amber-500/20">
+                        <div className="text-[11px] text-slate-300">
+                          <div className="font-semibold text-slate-200 mb-0.5">尚未登入 Google 帳號 (目前為本機離線模式)</div>
+                          <span>點擊右側按鈕使用 Google 帳號登入，即可開啟專屬雲端資料庫並自動秒級同步。</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={onGoogleLogin}
+                          className="px-4 py-2 bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-lg text-xs font-bold transition-all shadow-lg shadow-indigo-500/30 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+                        >
+                          <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
+                            <path
+                              fill="#4285F4"
+                              d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                            />
+                            <path
+                              fill="#34A853"
+                              d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                            />
+                            <path
+                              fill="#FBBC05"
+                              d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                            />
+                            <path
+                              fill="#EA4335"
+                              d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                            />
+                          </svg>
+                          <span>使用 Google 帳號登入</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Firebase Cloud Firestore Config Form */}
                   <form onSubmit={handleSaveFirebase} className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                         <Cloud className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Google Firebase (Cloud Firestore) 設定</span>
+                        <span>Google Firebase (Cloud Firestore & Auth) 專案設定</span>
                       </div>
                       <span className="text-[11px] text-amber-400/90 font-medium">
                         免費額度每日 50,000 次讀取 · 不受 2 個資料庫上限限制
@@ -644,12 +741,12 @@ export default function SettingsModal({
 
                         <button
                           type="button"
-                          disabled={isSyncingToCloud || !tempFirebaseConfig.apiKey || !tempFirebaseConfig.projectId}
+                          disabled={isSyncingToCloud || !currentUser}
                           onClick={handlePushAllToCloud}
-                          className="px-3 py-1.5 bg-amber-950/80 hover:bg-amber-900 border border-amber-500/40 text-amber-300 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                          className="px-3 py-1.5 bg-amber-950/80 hover:bg-amber-900 disabled:opacity-50 border border-amber-500/40 text-amber-300 rounded-lg font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
                         >
                           <Upload className={`w-3.5 h-3.5 ${isSyncingToCloud ? 'animate-spin' : ''}`} />
-                          <span>{isSyncingToCloud ? '同步上傳中...' : '一鍵推播本機全部資料到 Firebase'}</span>
+                          <span>{isSyncingToCloud ? '同步上傳中...' : '一鍵推播本機全部資料到當前帳號'}</span>
                         </button>
                       </div>
 
@@ -674,7 +771,7 @@ export default function SettingsModal({
                     <div className="flex items-center justify-between">
                       <div className="font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                         <Database className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Cloud Firestore 安全性規則 (Security Rules)</span>
+                        <span>Cloud Firestore 各帳號獨立安全性規則 (Security Rules)</span>
                       </div>
                       <button
                         type="button"
@@ -689,23 +786,16 @@ export default function SettingsModal({
                         ) : (
                           <>
                             <Copy className="w-3.5 h-3.5" />
-                            <span>一鍵複製 Firestore 規則</span>
+                            <span>一鍵複製各帳號隔離規則</span>
                           </>
                         )}
                       </button>
                     </div>
                     <p className="text-slate-400 leading-relaxed text-[11px]">
-                      前往 Firebase 控制台 ➔ 點擊左側 <strong>Firestore Database</strong> ➔ 點選 <strong>Rules (規則)</strong> 標籤，貼上以下規則並發布，即可開放瀏覽器端安全讀寫書籤：
+                      前往 Firebase 控制台 ➔ 點擊左側 <strong>Firestore Database</strong> ➔ 點選 <strong>Rules (規則)</strong> 標籤，貼上以下規則並發布。此規則確保<strong>只有登入者本人能讀寫自己的書籤與分類</strong>，完全保護各帳號隱私：
                     </p>
-                    <pre className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg font-mono text-[11px] text-amber-300/90 leading-relaxed">
-{`rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
-    }
-  }
-}`}
+                    <pre className="p-2.5 bg-slate-950 border border-slate-800 rounded-lg font-mono text-[11px] text-amber-300/90 leading-relaxed overflow-x-auto">
+{FIRESTORE_PER_USER_RULES}
                     </pre>
                   </div>
                 </>

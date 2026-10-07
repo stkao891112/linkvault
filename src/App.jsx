@@ -51,7 +51,8 @@ export default function App() {
     }
   });
 
-  // 2. Cloud Sync & Realtime State
+  // 2. Cloud Sync & Google Auth State
+  const [currentUser, setCurrentUser] = useState(null);
   const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '', source: 'none' });
   const [firebaseConfig, setFirebaseConfig] = useState(() => getStoredFirebaseConfig() || {});
   const [cloudSyncStatus, setCloudSyncStatus] = useState('OFFLINE'); // 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SUBSCRIBED'
@@ -169,9 +170,25 @@ export default function App() {
   }, [customApiKey, apiProvider, customBaseUrl, customModel]);
 
   // ==========================================
-  // Supabase Cloud Sync Initialization & Realtime Subscription
+  // Firebase Auth State Listener (Google Account)
   // ==========================================
-  // Cloud Sync Initialization & Realtime Subscription (Firebase & Supabase)
+  useEffect(() => {
+    const unsubscribeAuth = cloudSync.subscribeToAuth((user) => {
+      setCurrentUser(user);
+      if (user) {
+        // Automatically switch active provider to Firebase
+        cloudSync.setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);
+        setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);
+      }
+      setReconnectTrigger((prev) => prev + 1);
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // ==========================================
+  // Cloud Sync Initialization & Realtime Subscription
+  // Fully Isolated Per Google Account UID!
   // ==========================================
   useEffect(() => {
     let unsubscribe = () => {};
@@ -188,14 +205,90 @@ export default function App() {
           return;
         }
 
+        // 1. Google Firebase Provider (Per-User Isolation)
+        if (cloudMeta.provider === cloudSync.CLOUD_PROVIDERS.FIREBASE) {
+          if (!currentUser) {
+            // Not signed in to Google
+            setCloudSyncStatus('OFFLINE');
+            return;
+          }
+
+          setCloudSyncStatus('CONNECTING');
+          const client = await cloudSync.initActiveCloud(cloudMeta);
+          if (!client || !isMounted) {
+            setCloudSyncStatus('OFFLINE');
+            return;
+          }
+
+          // Fetch per-user data
+          const { categories: remoteCats, bookmarks: remoteBms } = await cloudSync.fetchRemoteData(
+            cloudSync.CLOUD_PROVIDERS.FIREBASE,
+            currentUser.uid
+          );
+          if (!isMounted) return;
+
+          let hasRemoteData = false;
+          if (remoteBms && remoteBms.length > 0) {
+            setBookmarks(remoteBms);
+            hasRemoteData = true;
+          }
+          if (remoteCats && remoteCats.length > 0) {
+            setCategories(remoteCats);
+            hasRemoteData = true;
+          }
+
+          // If new empty account in cloud, seed with current local data
+          if (remoteBms !== null && remoteCats !== null && remoteBms.length === 0 && bookmarks.length > 0) {
+            try {
+              await cloudSync.batchUploadAll(
+                bookmarks,
+                categories,
+                cloudSync.CLOUD_PROVIDERS.FIREBASE,
+                currentUser.uid
+              );
+              showToast(`✨ 已為 Google 帳號「${currentUser.displayName || currentUser.email}」建立專屬雲端庫`);
+            } catch (seedErr) {
+              console.warn('Initial cloud seed warning:', seedErr);
+            }
+          } else if (hasRemoteData) {
+            showToast(`🟢 已載入「${currentUser.displayName || currentUser.email}」專屬雲端資料庫`);
+          }
+
+          // Subscribe to live onSnapshot changes for this user
+          unsubscribe = cloudSync.subscribeToRemoteRealtime(
+            cloudSync.CLOUD_PROVIDERS.FIREBASE,
+            {
+              onBookmarksChange: (newBms) => {
+                if (Array.isArray(newBms)) {
+                  setBookmarks(newBms);
+                }
+              },
+              onCategoriesChange: (newCats) => {
+                if (Array.isArray(newCats)) {
+                  setCategories(newCats);
+                }
+              },
+              onStatusChange: (status) => {
+                if (!isMounted) return;
+                setCloudSyncStatus(status);
+              },
+            },
+            currentUser.uid
+          );
+          return;
+        }
+
+        // 2. Supabase Provider
         setCloudSyncStatus('CONNECTING');
         const client = await cloudSync.initActiveCloud(cloudMeta);
-        if (!client) {
+        if (!client || !isMounted) {
           setCloudSyncStatus('OFFLINE');
           return;
         }
 
-        const { categories: remoteCats, bookmarks: remoteBms } = await cloudSync.fetchRemoteData(cloudMeta.provider);
+        const { categories: remoteCats, bookmarks: remoteBms } = await cloudSync.fetchRemoteData(
+          cloudMeta.provider
+        );
         if (!isMounted) return;
 
         let hasRemoteData = false;
@@ -210,14 +303,13 @@ export default function App() {
 
         if (remoteBms !== null && remoteCats !== null && remoteBms.length === 0 && bookmarks.length > 0) {
           try {
-            await cloudSync.batchUploadAll(bookmarks, categories);
+            await cloudSync.batchUploadAll(bookmarks, categories, cloudMeta.provider);
             showToast('已自動將本機情報資料初始化推播至雲端資料庫！');
           } catch (seedErr) {
             console.warn('Initial cloud seed warning:', seedErr);
           }
         } else if (hasRemoteData) {
-          const providerLabel = cloudMeta.provider === 'firebase' ? 'Firebase Firestore' : 'Supabase';
-          showToast(`🟢 已連線 ${providerLabel} 雲端資料庫並同步最新資料`);
+          showToast(`🟢 已連線 Supabase 雲端資料庫並同步最新資料`);
         }
 
         unsubscribe = cloudSync.subscribeToRemoteRealtime(cloudMeta.provider, {
@@ -264,15 +356,7 @@ export default function App() {
           },
           onStatusChange: (status) => {
             if (!isMounted) return;
-            if (status === 'SUBSCRIBED') {
-              setCloudSyncStatus('SUBSCRIBED');
-            } else if (status === 'CONNECTED') {
-              setCloudSyncStatus('CONNECTED');
-            } else if (status === 'CONNECTING') {
-              setCloudSyncStatus('CONNECTING');
-            } else {
-              setCloudSyncStatus('OFFLINE');
-            }
+            setCloudSyncStatus(status);
           },
         });
       } catch (err) {
@@ -287,7 +371,33 @@ export default function App() {
       isMounted = false;
       unsubscribe();
     };
-  }, [reconnectTrigger]);
+  }, [reconnectTrigger, currentUser]);
+
+  const handleGoogleLogin = async () => {
+    try {
+      showToast('正在開啟 Google 登入視窗...', 'info');
+      const user = await cloudSync.loginWithGoogle();
+      setCurrentUser(user);
+      cloudSync.setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);
+      setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);
+      setReconnectTrigger((prev) => prev + 1);
+      showToast(`🟢 歡迎 ${user.displayName || user.email}！已自動同步專屬資料庫`);
+    } catch (err) {
+      console.error('Google login error:', err);
+      alert(err.message || 'Google 登入失敗');
+    }
+  };
+
+  const handleGoogleLogout = async () => {
+    try {
+      await cloudSync.logoutFirebase();
+      setCurrentUser(null);
+      setReconnectTrigger((prev) => prev + 1);
+      showToast('已登出 Google 帳號，回到本機離線模式');
+    } catch (err) {
+      console.error('Google logout error:', err);
+    }
+  };
 
   const handleSaveFirebaseConfig = (newCfg) => {
     saveStoredFirebaseConfig(newCfg);
@@ -307,7 +417,7 @@ export default function App() {
   };
 
   const handleManualSyncToCloud = async () => {
-    const res = await cloudSync.batchUploadAll(bookmarks, categories);
+    const res = await cloudSync.batchUploadAll(bookmarks, categories, activeCloudProvider, currentUser?.uid);
     showToast(`已成功同步至雲端資料庫！`);
     return res;
   };
@@ -371,48 +481,60 @@ export default function App() {
   // Actions
   const handleSaveBookmark = (newBm) => {
     setBookmarks((prev) => [newBm, ...prev]);
-    cloudSync.upsertBookmark(newBm).catch((err) => console.warn('Cloud upsert failed:', err));
+    cloudSync
+      .upsertBookmark(newBm, activeCloudProvider, currentUser?.uid)
+      .catch((err) => console.warn('Cloud upsert failed:', err));
     showToast(`成功收錄「${newBm.title.slice(0, 20)}...」並完成 AI 提煉！`);
   };
 
   // Batch Save Bookmarks from Focus Carousel Stepper
-  const handleBatchSaveFromCarousel = useCallback((confirmedItemsList) => {
-    if (!confirmedItemsList || confirmedItemsList.length === 0) return;
+  const handleBatchSaveFromCarousel = useCallback(
+    (confirmedItemsList) => {
+      if (!confirmedItemsList || confirmedItemsList.length === 0) return;
 
-    const newBookmarks = confirmedItemsList.map((item, idx) => {
-      const urlStr = item.guessedUrl?.startsWith('http') ? item.guessedUrl : `https://${item.guessedUrl || 'example.com'}`;
-      const catId = item.suggestedCategory || 'cat-tools';
-      return {
-        id: `bm-${Date.now()}-${idx}`,
-        url: urlStr,
-        title: item.title || urlStr,
-        domain: item.domain || new URL(urlStr).hostname.replace(/^www\./, ''),
-        favicon: item.favicon || getFaviconUrl(urlStr),
-        categoryId: catId,
-        userNote: item.userNote || '來自截圖智能辨識',
-        aiSummary: {
-          oneLiner: item.oneLiner || '',
-          highlights: Array.isArray(item.highlights) && item.highlights.length > 0 ? item.highlights : ['視覺識別多模態提煉亮點'],
-          useCases: ['日常開發與設計參考', '深度探訪與專案選型'],
-          suggestedCategory: catId,
-          suggestedTags: item.tags || ['截圖辨識'],
-        },
-        tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['截圖辨識'],
-        isFavorite: false,
-        status: 'unread',
-        createdAt: new Date(Date.now() + idx * 10).toISOString(),
-      };
-    });
+      const newBookmarks = confirmedItemsList.map((item, idx) => {
+        const urlStr = item.guessedUrl?.startsWith('http')
+          ? item.guessedUrl
+          : `https://${item.guessedUrl || 'example.com'}`;
+        const catId = item.suggestedCategory || 'cat-tools';
+        return {
+          id: `bm-${Date.now()}-${idx}`,
+          url: urlStr,
+          title: item.title || urlStr,
+          domain: item.domain || new URL(urlStr).hostname.replace(/^www\./, ''),
+          favicon: item.favicon || getFaviconUrl(urlStr),
+          categoryId: catId,
+          userNote: item.userNote || '來自截圖智能辨識',
+          aiSummary: {
+            oneLiner: item.oneLiner || '',
+            highlights:
+              Array.isArray(item.highlights) && item.highlights.length > 0
+                ? item.highlights
+                : ['視覺識別多模態提煉亮點'],
+            useCases: ['日常開發與設計參考', '深度探訪與專案選型'],
+            suggestedCategory: catId,
+            suggestedTags: item.tags || ['截圖辨識'],
+          },
+          tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : ['截圖辨識'],
+          isFavorite: false,
+          status: 'unread',
+          createdAt: new Date(Date.now() + idx * 10).toISOString(),
+        };
+      });
 
-    setBookmarks((prev) => [...newBookmarks, ...prev]);
+      setBookmarks((prev) => [...newBookmarks, ...prev]);
 
-    // Batch upsert to Cloud Sync
-    newBookmarks.forEach((bm) => {
-      cloudSync.upsertBookmark(bm).catch((err) => console.warn('Cloud batch upsert warning:', err));
-    });
+      // Batch upsert to Cloud Sync
+      newBookmarks.forEach((bm) => {
+        cloudSync
+          .upsertBookmark(bm, activeCloudProvider, currentUser?.uid)
+          .catch((err) => console.warn('Cloud batch upsert warning:', err));
+      });
 
-    showToast(`📸 截圖智能收錄：已將 ${newBookmarks.length} 個精選網站存入情報庫！`);
-  }, []);
+      showToast(`📸 截圖智能收錄：已將 ${newBookmarks.length} 個精選網站存入情報庫！`);
+    },
+    [activeCloudProvider, currentUser]
+  );
 
   // Trigger Screenshot Vision Analysis
   const handleTriggerVision = useCallback(
@@ -488,28 +610,37 @@ export default function App() {
     if (detailBookmark?.id === updatedBm.id) {
       setDetailBookmark(updatedBm);
     }
-    cloudSync.upsertBookmark(updatedBm).catch((err) => console.warn('Cloud update failed:', err));
+    cloudSync
+      .upsertBookmark(updatedBm, activeCloudProvider, currentUser?.uid)
+      .catch((err) => console.warn('Cloud update failed:', err));
   };
 
   const handleDeleteBookmark = (id) => {
     setBookmarks((prev) => prev.filter((b) => b.id !== id));
-    cloudSync.deleteBookmark(id).catch((err) => console.warn('Cloud delete failed:', err));
+    cloudSync
+      .deleteBookmark(id, activeCloudProvider, currentUser?.uid)
+      .catch((err) => console.warn('Cloud delete failed:', err));
     showToast('已自情報庫中刪除', 'info');
   };
 
-  const handleToggleFavorite = useCallback((id) => {
-    setBookmarks((prev) =>
-      prev.map((b) => {
-        if (b.id === id) {
-          const updated = { ...b, isFavorite: !b.isFavorite };
-          cloudSync.upsertBookmark(updated).catch((err) => console.warn('Cloud fav update failed:', err));
-          return updated;
-        }
-        return b;
-      })
-    );
-    setDetailBookmark((prev) => (prev?.id === id ? { ...prev, isFavorite: !prev.isFavorite } : prev));
-  }, []);
+  const handleToggleFavorite = useCallback(
+    (id) => {
+      setBookmarks((prev) =>
+        prev.map((b) => {
+          if (b.id === id) {
+            const updated = { ...b, isFavorite: !b.isFavorite };
+            cloudSync
+              .upsertBookmark(updated, activeCloudProvider, currentUser?.uid)
+              .catch((err) => console.warn('Cloud fav update failed:', err));
+            return updated;
+          }
+          return b;
+        })
+      );
+      setDetailBookmark((prev) => (prev?.id === id ? { ...prev, isFavorite: !prev.isFavorite } : prev));
+    },
+    [activeCloudProvider, currentUser]
+  );
 
   // Zero-Modal Drawer Navigation & Index Calculation
   const currentDetailIndex = useMemo(() => {
@@ -585,7 +716,9 @@ export default function App() {
       prev.map((b) => {
         if (b.id === id) {
           const updated = { ...b, status: b.status === 'read' ? 'unread' : 'read' };
-          cloudSync.upsertBookmark(updated).catch((err) => console.warn('Cloud status update failed:', err));
+          cloudSync
+            .upsertBookmark(updated, activeCloudProvider, currentUser?.uid)
+            .catch((err) => console.warn('Cloud status update failed:', err));
           return updated;
         }
         return b;
@@ -595,7 +728,9 @@ export default function App() {
 
   const handleAddCategory = (newCat) => {
     setCategories((prev) => [...prev, newCat]);
-    cloudSync.upsertCategory(newCat).catch((err) => console.warn('Cloud add category failed:', err));
+    cloudSync
+      .upsertCategory(newCat, activeCloudProvider, currentUser?.uid)
+      .catch((err) => console.warn('Cloud add category failed:', err));
     showToast(`已建立「${newCat.name}」自訂分類`);
   };
 
@@ -604,7 +739,9 @@ export default function App() {
     setBookmarks((prev) =>
       prev.map((b) => (b.categoryId === catId ? { ...b, categoryId: 'cat-tools' } : b))
     );
-    cloudSync.deleteCategory(catId).catch((err) => console.warn('Cloud delete category failed:', err));
+    cloudSync
+      .deleteCategory(catId, activeCloudProvider, currentUser?.uid)
+      .catch((err) => console.warn('Cloud delete category failed:', err));
     if (selectedCategory === catId) {
       setSelectedCategory('cat-all');
     }
@@ -619,9 +756,9 @@ export default function App() {
     setFilterFavorite(false);
     setFilterUnread(false);
     if (cloudSyncStatus === 'SUBSCRIBED' || cloudSyncStatus === 'CONNECTED') {
-      cloudSync.batchUploadAll(INITIAL_BOOKMARKS, INITIAL_CATEGORIES).catch((err) =>
-        console.warn('Cloud reset upload failed:', err)
-      );
+      cloudSync
+        .batchUploadAll(INITIAL_BOOKMARKS, INITIAL_CATEGORIES, activeCloudProvider, currentUser?.uid)
+        .catch((err) => console.warn('Cloud reset upload failed:', err));
     }
     showToast('已重設為初始示範資料');
   };
@@ -632,9 +769,9 @@ export default function App() {
       setCategories(newCategories);
     }
     if (cloudSyncStatus === 'SUBSCRIBED' || cloudSyncStatus === 'CONNECTED') {
-      cloudSync.batchUploadAll(newBookmarks, newCategories || categories).catch((err) =>
-        console.warn('Cloud import upload failed:', err)
-      );
+      cloudSync
+        .batchUploadAll(newBookmarks, newCategories || categories, activeCloudProvider, currentUser?.uid)
+        .catch((err) => console.warn('Cloud import upload failed:', err));
     }
     showToast(`已成功匯入 ${newBookmarks.length} 筆收藏資料！`);
   };
@@ -700,6 +837,9 @@ export default function App() {
           totalCount={bookmarks.length}
           filteredCount={filteredBookmarks.length}
           supabaseSyncStatus={cloudSyncStatus}
+          currentUser={currentUser}
+          onGoogleLogin={handleGoogleLogin}
+          onGoogleLogout={handleGoogleLogout}
         />
 
       {/* Main Single-Column Fluid Container */}
@@ -846,7 +986,7 @@ export default function App() {
         onDeleteCategory={handleDeleteCategory}
       />
 
-      {/* Settings & Supabase Cloud Sync Modal */}
+      {/* Settings & Supabase / Firebase Cloud Sync Modal */}
       <SettingsModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
@@ -871,6 +1011,9 @@ export default function App() {
         supabaseSyncStatus={cloudSyncStatus}
         onSaveSupabaseConfig={handleSaveSupabaseConfig}
         onManualSyncToCloud={handleManualSyncToCloud}
+        currentUser={currentUser}
+        onGoogleLogin={handleGoogleLogin}
+        onGoogleLogout={handleGoogleLogout}
       />
 
       {/* Focus Carousel Stepper Modal for Screenshot Vision */}
