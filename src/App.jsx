@@ -51,8 +51,15 @@ export default function App() {
     }
   });
 
-  // 2. Cloud Sync & Google Auth State
-  const [currentUser, setCurrentUser] = useState(null);
+  // 2. Cloud Sync & Google Auth State (Auto-Persisted)
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const cached = localStorage.getItem('linkvault_google_user');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
   const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '', source: 'none' });
   const [firebaseConfig, setFirebaseConfig] = useState(() => getStoredFirebaseConfig() || {});
   const [cloudSyncStatus, setCloudSyncStatus] = useState('OFFLINE'); // 'OFFLINE' | 'CONNECTING' | 'CONNECTED' | 'SUBSCRIBED'
@@ -272,6 +279,10 @@ export default function App() {
                 if (!isMounted) return;
                 setCloudSyncStatus(status);
               },
+              onError: (msg) => {
+                if (!isMounted) return;
+                showToast(msg, 'error');
+              },
             },
             currentUser.uid
           );
@@ -417,8 +428,13 @@ export default function App() {
   };
 
   const handleManualSyncToCloud = async () => {
-    const res = await cloudSync.batchUploadAll(bookmarks, categories, activeCloudProvider, currentUser?.uid);
-    showToast(`已成功同步至雲端資料庫！`);
+    const provider = currentUser ? cloudSync.CLOUD_PROVIDERS.FIREBASE : activeCloudProvider;
+    const res = await cloudSync.batchUploadAll(bookmarks, categories, provider, currentUser?.uid);
+    if (res && res.success === false) {
+      showToast(res.message || '同步至雲端失敗', 'error');
+      throw new Error(res.message || '同步至雲端失敗');
+    }
+    showToast(`✨ 已成功同步 ${bookmarks.length} 筆書籤至雲端！`);
     return res;
   };
 

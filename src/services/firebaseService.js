@@ -462,7 +462,11 @@ export async function batchUploadAllToFirestore(userId, bookmarks, categories) {
     return { success: true, count: (bookmarks || []).length };
   } catch (err) {
     console.error('[Firebase] batchUploadAll error:', err);
-    return { success: false, message: err.message };
+    let errorMsg = err.message || '批次同步失敗';
+    if (err?.code === 'permission-denied' || errorMsg.includes('permission') || errorMsg.includes('insufficient')) {
+      errorMsg = '🔒 Firestore 安全性規則尚未開放讀寫！請至 Firebase 控制台 ➔ Firestore Database ➔ Rules 標籤頁貼上規則並點「發布」';
+    }
+    return { success: false, message: errorMsg };
   }
 }
 
@@ -503,6 +507,9 @@ export function subscribeToFirestoreRealtime(userId, callbacks = {}) {
       (error) => {
         console.warn('[Firebase Firestore] Bookmarks realtime error:', error);
         callbacks.onStatusChange?.('OFFLINE');
+        if (error?.code === 'permission-denied' || error?.message?.includes('permission')) {
+          callbacks.onError?.('🔒 Firestore 安全性規則尚未開放讀寫！請至 Firebase 控制台 ➔ Rules 貼上規則並點「發布」');
+        }
       }
     );
 
