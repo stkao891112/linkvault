@@ -33,7 +33,13 @@ export default function FilterBar({
   unreadCount,
   filteredCount,
   onOpenCategoryModal,
+  isManualCategoryOrder = false,
+  onReorderCategories = () => {},
+  onResetCategoryOrder = () => {},
 }) {
+  const [dragId, setDragId] = React.useState(null);
+  const [overId, setOverId] = React.useState(null);
+
   return (
     <div className="space-y-4 mb-6">
       
@@ -133,19 +139,44 @@ export default function FilterBar({
           </span>
         </button>
 
-        {/* Dynamic Categories */}
+        {/* Dynamic Categories (auto-sorted by count, drag to reorder manually) */}
         {categories.filter((c) => !c.isSystem).map((cat) => {
           const isSelected = selectedCategory === cat.id && !filterFavorite && !filterUnread;
           const count = categoryCounts[cat.id] || 0;
+          const isDropTarget = overId === cat.id && dragId && dragId !== cat.id;
           return (
             <button
               key={cat.id}
+              draggable
+              onDragStart={(e) => {
+                setDragId(cat.id);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', cat.id);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (overId !== cat.id) setOverId(cat.id);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                onReorderCategories(dragId, cat.id);
+                setDragId(null);
+                setOverId(null);
+              }}
+              onDragEnd={() => {
+                setDragId(null);
+                setOverId(null);
+              }}
               onClick={() => {
                 setSelectedCategory(cat.id);
                 setFilterFavorite(false);
                 setFilterUnread(false);
               }}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border ${
+              title="拖曳可調整分類順序"
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border cursor-grab active:cursor-grabbing ${
+                dragId === cat.id ? 'opacity-40' : ''
+              } ${isDropTarget ? 'ring-2 ring-indigo-400/70' : ''} ${
                 isSelected
                   ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-500/20'
                   : 'bg-slate-900/70 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border-slate-800'
@@ -160,6 +191,17 @@ export default function FilterBar({
             </button>
           );
         })}
+
+        {isManualCategoryOrder && (
+          <button
+            onClick={onResetCategoryOrder}
+            title="恢復依數量自動排序"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800 whitespace-nowrap transition-colors"
+          >
+            <ArrowUpDown className="w-3 h-3" />
+            <span>依數量排序</span>
+          </button>
+        )}
 
         {/* Favorite Pill */}
         <button

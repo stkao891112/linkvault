@@ -885,6 +885,60 @@ export default function App() {
     return counts;
   }, [categories, bookmarks]);
 
+  // Category display order: null = auto sort by bookmark count; array = manual drag order
+  const [categoryOrder, setCategoryOrder] = useState(() => {
+    try {
+      const saved = localStorage.getItem('linkvault_category_order');
+      const parsed = saved ? JSON.parse(saved) : null;
+      return Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const sortedCategories = useMemo(() => {
+    const systemCats = categories.filter((c) => c.isSystem);
+    const userCats = categories.filter((c) => !c.isSystem);
+    const byCount = (a, b) => (categoryCounts[b.id] || 0) - (categoryCounts[a.id] || 0);
+
+    let sorted;
+    if (categoryOrder) {
+      const idx = (id) => {
+        const i = categoryOrder.indexOf(id);
+        return i === -1 ? Infinity : i;
+      };
+      sorted = [...userCats].sort((a, b) => {
+        const d = idx(a.id) - idx(b.id);
+        if (d !== 0 && !(idx(a.id) === Infinity && idx(b.id) === Infinity)) return d;
+        return byCount(a, b);
+      });
+    } else {
+      sorted = [...userCats].sort(byCount);
+    }
+    return [...systemCats, ...sorted];
+  }, [categories, categoryCounts, categoryOrder]);
+
+  const handleReorderCategories = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId) return;
+    const ids = sortedCategories.filter((c) => !c.isSystem).map((c) => c.id);
+    const from = ids.indexOf(fromId);
+    const to = ids.indexOf(toId);
+    if (from === -1 || to === -1) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    setCategoryOrder(ids);
+    try {
+      localStorage.setItem('linkvault_category_order', JSON.stringify(ids));
+    } catch {}
+  };
+
+  const handleResetCategoryOrder = () => {
+    setCategoryOrder(null);
+    try {
+      localStorage.removeItem('linkvault_category_order');
+    } catch {}
+    showToast('已恢復依數量自動排序');
+  };
+
   const favCount = useMemo(() => bookmarks.filter((b) => b.isFavorite).length, [bookmarks]);
   const unreadCount = useMemo(() => bookmarks.filter((b) => b.status === 'unread').length, [bookmarks]);
 
@@ -961,7 +1015,10 @@ export default function App() {
         <FilterBar
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
-          categories={categories}
+          categories={sortedCategories}
+          isManualCategoryOrder={Boolean(categoryOrder)}
+          onReorderCategories={handleReorderCategories}
+          onResetCategoryOrder={handleResetCategoryOrder}
           selectedCategory={selectedCategory}
           setSelectedCategory={setSelectedCategory}
           selectedTag={selectedTag}
