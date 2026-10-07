@@ -70,6 +70,7 @@ export default function SettingsModal({
   currentUser = null,
   onGoogleLogin = () => {},
   onGoogleLogout = () => {},
+  onSaveApiSettings = null,
 }) {
   // Active Tab: sync | ai | backup
   const [activeTab, setActiveTab] = useState('sync');
@@ -191,14 +192,23 @@ export default function SettingsModal({
     }
   };
 
-  const handleSaveApiSettings = (e) => {
+  const handleSaveApiSettings = async (e) => {
     e.preventDefault();
-    setCustomApiKey(tempApiKey.trim());
-    setApiProvider(tempProvider);
-    setCustomBaseUrl(tempBaseUrl.trim());
-    setCustomModel(tempModel.trim());
+    const apiKey = tempApiKey.trim();
+    const provider = tempProvider;
+    const baseUrl = tempBaseUrl.trim();
+    const model = tempModel.trim();
+
+    setCustomApiKey(apiKey);
+    setApiProvider(provider);
+    setCustomBaseUrl(baseUrl);
+    setCustomModel(model);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2000);
+
+    if (onSaveApiSettings) {
+      await onSaveApiSettings({ apiKey, provider, baseUrl, model });
+    }
   };
 
   // Parse Firebase Config Snippet

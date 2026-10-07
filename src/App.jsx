@@ -480,6 +480,38 @@ export default function App() {
     showToast('Supabase 連線設定已儲存');
   };
 
+  const handleSaveApiSettings = async ({ apiKey, provider, baseUrl, model }) => {
+    setCustomApiKey(apiKey);
+    setApiProvider(provider);
+    setCustomBaseUrl(baseUrl);
+    setCustomModel(model);
+    try {
+      localStorage.setItem('linkvault_custom_apikey', apiKey);
+      localStorage.setItem('linkvault_api_provider', provider);
+      localStorage.setItem('linkvault_custom_baseurl', baseUrl);
+      localStorage.setItem('linkvault_custom_model', model);
+    } catch (e) {
+      console.warn('LocalStorage save failed:', e);
+    }
+
+    if (currentUser?.uid) {
+      const res = await cloudSync.saveUserSettings(currentUser.uid, {
+        customApiKey: apiKey,
+        apiProvider: provider,
+        customBaseUrl: baseUrl,
+        customModel: model,
+      });
+      if (res && res.success === false) {
+        showToast(res.message || '雲端同步失敗', 'error');
+        alert(`⚠️ AI 設定雲端同步失敗：\n${res.message || '請確認 Firestore 規則'}`);
+      } else {
+        showToast('⚡ AI 設定已儲存並同步至雲端，手機端已即時生效！');
+      }
+    } else {
+      showToast('AI 設定已儲存於本機');
+    }
+  };
+
   const handleManualSyncToCloud = async () => {
     const provider = currentUser ? cloudSync.CLOUD_PROVIDERS.FIREBASE : activeCloudProvider;
     const res = await cloudSync.batchUploadAll(bookmarks, categories, provider, currentUser?.uid);
@@ -1083,6 +1115,7 @@ export default function App() {
         currentUser={currentUser}
         onGoogleLogin={handleGoogleLogin}
         onGoogleLogout={handleGoogleLogout}
+        onSaveApiSettings={handleSaveApiSettings}
       />
 
       {/* Focus Carousel Stepper Modal for Screenshot Vision */}

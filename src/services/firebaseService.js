@@ -585,7 +585,11 @@ export async function saveUserSettingsToFirestore(userId, settings = {}) {
     return { success: true };
   } catch (err) {
     console.warn('[Firebase] saveUserSettings error:', err);
-    return { success: false, message: err.message };
+    let errMsg = err.message || '儲存失敗';
+    if (err?.code === 'permission-denied' || errMsg.includes('permission') || errMsg.includes('insufficient')) {
+      errMsg = '🔒 Firestore 安全性規則尚未開放！請前往 Firebase 控制台 ➔ Firestore Database ➔ Rules 貼上規則並點「發布」';
+    }
+    return { success: false, message: errMsg };
   }
 }
 
