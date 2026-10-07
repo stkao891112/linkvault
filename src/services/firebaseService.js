@@ -31,13 +31,29 @@ export const FIREBASE_STORAGE_KEYS = {
   CONFIG: 'linkvault_firebase_config',
 };
 
-// Default fallback config or localStorage
+// Builtin Zero-Config Firebase Credentials for LinkVault
+export const BUILTIN_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDsSl0u0FtJiHzxRTpfjI87neKRwz38LsY",
+  authDomain: "linkvault-5171a.firebaseapp.com",
+  projectId: "linkvault-5171a",
+  storageBucket: "linkvault-5171a.firebasestorage.app",
+  messagingSenderId: "927466865063",
+  appId: "1:927466865063:web:cf63e4cbd16e08f3793682",
+  measurementId: "G-CZBWXK17KF",
+};
+
+// Default fallback config or localStorage (Zero manual typing needed)
 export function getStoredFirebaseConfig() {
   try {
     const raw = localStorage.getItem(FIREBASE_STORAGE_KEYS.CONFIG);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return BUILTIN_FIREBASE_CONFIG;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.apiKey || !parsed?.projectId) {
+      return BUILTIN_FIREBASE_CONFIG;
+    }
+    return { ...BUILTIN_FIREBASE_CONFIG, ...parsed };
   } catch {
-    return null;
+    return BUILTIN_FIREBASE_CONFIG;
   }
 }
 
