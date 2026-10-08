@@ -213,19 +213,39 @@ export async function loginWithGoogle() {
     let friendlyMsg = error.message;
 
     if (error.code === 'auth/popup-blocked') {
-      const shouldRedirect = typeof window !== 'undefined' && window.confirm(
-        '⚠️ 瀏覽器攔截了 Google 登入彈出式視窗！\n\n' +
-        '原因：目前 Google/Chrome 設定檔預設封鎖了網站彈出視窗或啟用了廣告攔截器。\n\n' +
-        '👉 點擊【確定】：直接改用「頁面重新導向 (Redirect)」跳轉登入（登入後自動回跳本頁）\n' +
-        '👉 點擊【取消】：自行由網址列右側解除封鎖後再試'
-      );
+      const isLocalhost =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.protocol === 'file:');
 
-      if (shouldRedirect) {
-        await signInWithRedirect(auth, provider);
-        return null;
+      if (isLocalhost) {
+        friendlyMsg =
+          '⚠️ Google 登入彈出視窗已被此 Chrome 設定檔封鎖！\n\n' +
+          '【為什麼換了設定檔會這樣？】\n' +
+          '每個 Google 設定檔的網站權限獨立，此設定檔尚未允許本網站開啟彈出視窗。\n' +
+          '（注意：本地本機環境受 Chrome 安全隔離限制，無法使用網頁跳轉，必須允許彈出視窗）\n\n' +
+          '【3 秒解除封鎖】：\n' +
+          '1. 看瀏覽器最上方網址列最右邊，會出現一個帶有紅色 ❌ 的「已封鎖彈出式視窗」小圖示。\n' +
+          '2. 點擊該圖示 ➔ 選擇「一律允許此網站的彈出式視窗和重新導向」 ➔ 點「完成」。\n' +
+          '3. 再次點擊「Google 帳號登入」，即可順利登入並自動同步資料！';
+      } else {
+        const shouldRedirect =
+          typeof window !== 'undefined' &&
+          window.confirm(
+            '⚠️ 瀏覽器攔截了 Google 登入彈出式視窗！\n\n' +
+              '是否改用「頁面重新導向 (Redirect)」直接跳轉登入？\n' +
+              '（登入後會自動跳回本頁面）'
+          );
+
+        if (shouldRedirect) {
+          await signInWithRedirect(auth, provider);
+          return null;
+        }
+
+        friendlyMsg =
+          '登入彈出視窗已被瀏覽器封鎖！請查看網址列最右邊的「已封鎖彈出式視窗」圖示，點擊並選擇「一律允許」，或檢查廣告攔截外掛 (AdBlock)。';
       }
-
-      friendlyMsg = '登入彈出視窗已被瀏覽器封鎖！請查看網址列最右邊的「已封鎖彈出式視窗」圖示，點擊並選擇「一律允許」，或檢查廣告攔截外掛 (AdBlock)。';
     } else if (error.code === 'auth/popup-closed-by-user') {
       friendlyMsg = '登入視窗已被關閉，請重新點擊登入';
     } else if (error.code === 'auth/unauthorized-domain') {
@@ -265,6 +285,12 @@ export function subscribeToAuth(onUserChange) {
     .then((result) => {
       if (result?.user) {
         console.log('[Firebase Auth] Redirect sign-in success:', result.user.email);
+        onUserChange({
+          uid: result.user.uid,
+          displayName: result.user.displayName || result.user.email?.split('@')[0] || 'Google User',
+          email: result.user.email || '',
+          photoURL: result.user.photoURL || '',
+        });
       }
     })
     .catch((err) => {
