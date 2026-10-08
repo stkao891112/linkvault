@@ -441,6 +441,7 @@ export default function App() {
     try {
       showToast('正在開啟 Google 登入視窗...', 'info');
       const user = await cloudSync.loginWithGoogle();
+      if (!user) return; // 已跳轉重新導向 (Redirect) 登入
       setCurrentUser(user);
       cloudSync.setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);
       setActiveCloudProvider(cloudSync.CLOUD_PROVIDERS.FIREBASE);

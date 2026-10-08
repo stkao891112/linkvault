@@ -10,6 +10,8 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -210,7 +212,21 @@ export async function loginWithGoogle() {
     console.error('[Firebase Auth] Login error:', error);
     let friendlyMsg = error.message;
 
-    if (error.code === 'auth/popup-closed-by-user') {
+    if (error.code === 'auth/popup-blocked') {
+      const shouldRedirect = typeof window !== 'undefined' && window.confirm(
+        '⚠️ 瀏覽器攔截了 Google 登入彈出式視窗！\n\n' +
+        '原因：目前 Google/Chrome 設定檔預設封鎖了網站彈出視窗或啟用了廣告攔截器。\n\n' +
+        '👉 點擊【確定】：直接改用「頁面重新導向 (Redirect)」跳轉登入（登入後自動回跳本頁）\n' +
+        '👉 點擊【取消】：自行由網址列右側解除封鎖後再試'
+      );
+
+      if (shouldRedirect) {
+        await signInWithRedirect(auth, provider);
+        return null;
+      }
+
+      friendlyMsg = '登入彈出視窗已被瀏覽器封鎖！請查看網址列最右邊的「已封鎖彈出式視窗」圖示，點擊並選擇「一律允許」，或檢查廣告攔截外掛 (AdBlock)。';
+    } else if (error.code === 'auth/popup-closed-by-user') {
       friendlyMsg = '登入視窗已被關閉，請重新點擊登入';
     } else if (error.code === 'auth/unauthorized-domain') {
       friendlyMsg = `此網域尚未加入 Firebase 白名單！\n請前往 Firebase 控制台 -> Authentication -> Settings -> Authorized domains，新增當前網域 (${window.location.hostname})。`;
@@ -243,6 +259,17 @@ export function subscribeToAuth(onUserChange) {
     onUserChange(null);
     return () => {};
   }
+
+  // Handle redirect result if user returned from signInWithRedirect
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result?.user) {
+        console.log('[Firebase Auth] Redirect sign-in success:', result.user.email);
+      }
+    })
+    .catch((err) => {
+      console.warn('[Firebase Auth] Redirect error:', err);
+    });
 
   return onAuthStateChanged(auth, (user) => {
     if (user) {
